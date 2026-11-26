@@ -189,17 +189,17 @@ def validar_rampa(r: Sequence[int]) -> None:
             raise RampaIlegible(f"la rampa del canal {letra} tiene valores no válidos.")
         if any(x > y for x, y in zip(canal, canal[1:])):
             raise RampaIlegible(
-                f"la rampa dejaría la pantalla casi ilegible (canal {letra} no monótono)."
+                f"este ajuste dejaría la pantalla casi ilegible (canal {letra} no monótono)."
             )
         rango = (canal[-1] - canal[0]) / MAXIMO
         if rango < RANGO_SALIDA_MIN:
             raise RampaIlegible(
-                "la rampa dejaría la pantalla casi ilegible "
+                "este ajuste dejaría la pantalla casi ilegible "
                 f"(rango de salida demasiado bajo en el canal {letra}: {rango:.0%})."
             )
         centro = canal[PUNTOS // 2] / MAXIMO
         if not CENTRO_MIN <= centro <= CENTRO_MAX:
             raise RampaIlegible(
-                "la rampa dejaría la pantalla casi ilegible "
+                "este ajuste dejaría la pantalla casi ilegible "
                 f"(valor central fuera del {CENTRO_MIN:.0%}–{CENTRO_MAX:.0%} en el canal {letra})."
             )
