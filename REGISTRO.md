@@ -2,6 +2,12 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-26 · planificación (fase 1)
+- **Hecho:** plan de la fase 1 aprobado por el autor y guardado en `docs/plan-fase-1.md` (archivos, fórmula y escala, rampa de Windows, orden de terminal, tests, comprobación mínima, riesgos y commits). Las seis decisiones se aprobaron con la opción recomendada.
+- **Verificado en solo lectura:** la enumeración de monitores y la lectura de la rampa funcionan desde `ctypes` (3 monitores activos en 2 GPU, rampas en identidad). No se modificó la pantalla ni ningún archivo de código.
+- **No verificado (hipótesis):** reglas de rechazo de Windows, persistencia de la rampa tras terminar el proceso, restauración al cerrar la ventana, y los umbrales y constantes de escala. Los prueba la sesión de test.
+- **Siguiente:** sesión de creación de la fase 1, siguiendo `docs/plan-fase-1.md`. Al cerrarla, actualizar `PLAN.md` (el cálculo de canales va en `color.py`).
+
 ## 2026-11-26 · creación (fase 0)
 - **Hecho:** `git init` (rama `main`), `.gitignore`, `requirements.txt` (`pystray`, `keyboard`, `Pillow`), `LICENSE` (texto oficial de GPL v3, descargado de gnu.org), `README.md` básico y primer commit. Autoría local con el correo `noreply` de GitHub, para no dejar correos personales en el historial.
 - **Licencias comprobadas** (en un entorno temporal, con `pip show` y los metadatos): `pystray` LGPLv3, `keyboard` MIT, `six` MIT, `Pillow` MIT-CMU. Todas compatibles con GPL v3.
