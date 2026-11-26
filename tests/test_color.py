@@ -150,3 +150,80 @@ def test_la_temperatura_se_aplica_a_la_rampa():
     r = color.construir_rampa(Ajuste.uniforme(temperatura=3000))
     rojo, verde, azul = r[255], r[256 + 255], r[512 + 255]
     assert rojo == 65535 and azul < verde < rojo
+
+
+# --- Validación de rampas -----------------------------------------------------
+from vislumbra.color import RampaIlegible  # noqa: E402
+
+
+def _rampa_con(canal0):
+    return list(canal0) + IDENTIDAD + IDENTIDAD
+
+
+def test_validar_rampa_acepta_la_identidad():
+    color.validar_rampa(color.rampa_identidad())
+
+
+def test_validar_rampa_rechaza_rampas_planas_e_invertidas():
+    with pytest.raises(RampaIlegible, match="rango de salida"):
+        color.validar_rampa(_rampa_con([30000] * 256))
+    with pytest.raises(RampaIlegible, match="no monótono"):
+        color.validar_rampa(_rampa_con(IDENTIDAD[::-1]))
+
+
+def test_validar_rampa_rechaza_no_monotona():
+    mala = list(IDENTIDAD)
+    mala[100], mala[101] = mala[101], mala[100]
+    with pytest.raises(RampaIlegible, match="no monótono"):
+        color.validar_rampa(_rampa_con(mala))
+
+
+def test_validar_rampa_rechaza_demasiado_oscura_o_clara():
+    oscura = [round(i / 255 * 0.2 * 65535) for i in range(256)]
+    with pytest.raises(RampaIlegible, match="rango de salida"):
+        color.validar_rampa(_rampa_con(oscura))
+    # Rango completo, pero casi todo blanco: el valor central queda fuera de margen.
+    clara = [0] + [64000] * 255
+    with pytest.raises(RampaIlegible, match="valor central"):
+        color.validar_rampa(_rampa_con(clara))
+
+
+def test_validar_rampa_rechaza_longitud_y_valores_invalidos():
+    with pytest.raises(RampaIlegible):
+        color.validar_rampa(IDENTIDAD)
+    with pytest.raises(RampaIlegible, match="no válidos"):
+        color.validar_rampa(_rampa_con([0] * 255 + [70000]))
+
+
+def test_las_esquinas_del_plan_se_rechazan():
+    for b in (125, -125):
+        r = color.construir_rampa(Ajuste.uniforme(brillo=b, contraste=-82))
+        with pytest.raises(RampaIlegible):
+            color.validar_rampa(r)
+    with pytest.raises(RampaIlegible):
+        color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=125)))
+
+
+def test_invariante_de_seguridad_en_la_rejilla():
+    """Toda combinación o valida o lanza RampaIlegible; lo que pasa es monótono y de rango amplio."""
+    validas = 0
+    for a in GRILLA:
+        r = color.construir_rampa(a)
+        try:
+            color.validar_rampa(r)
+        except RampaIlegible:
+            continue
+        validas += 1
+        for canal in (r[:256], r[256:512], r[512:]):
+            assert all(x <= y for x, y in zip(canal, canal[1:]))
+            assert canal[-1] - canal[0] >= color.RANGO_SALIDA_MIN * 65535 - 1
+    assert validas > 0
+
+
+@pytest.mark.parametrize("ajuste", [
+    Ajuste(),
+    Ajuste.uniforme(contraste=5, gamma=1.7),
+    Ajuste.uniforme(contraste=5, gamma=2.5),
+])
+def test_neutro_y_valores_de_referencia_validan(ajuste):
+    color.validar_rampa(color.construir_rampa(ajuste))

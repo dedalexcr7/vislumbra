@@ -20,6 +20,10 @@ GAMMA_MIN, GAMMA_MAX = 0.5, 4.0
 TEMPERATURA_MIN, TEMPERATURA_MAX = 2500.0, 10000.0
 TEMPERATURA_NEUTRA = 6500.0
 
+# Umbrales del validador de rampas (provisionales, se afinan en la sesión de test)
+RANGO_SALIDA_MIN = 0.25  # ramp[255] - ramp[0] al menos el 25 % de 65535
+CENTRO_MIN, CENTRO_MAX = 0.10, 0.90  # ramp[128] entre el 10 % y el 90 %
+
 BRILLO_POR_UNIDAD = 1.0 / 250.0  # brillo ±125 -> desplazamiento ±0,5
 CONTRASTE_ESCALA = 50.0  # factor de contraste = 2 ** (contraste / 50)
 
@@ -168,3 +172,34 @@ def kelvin_a_rgb(kelvin: float) -> tuple[float, float, float]:
     relativo = [c / n for c, n in zip(_rgb_helland(kelvin), base)]
     maximo = max(relativo)
     return tuple(c / maximo for c in relativo)  # type: ignore[return-value]
+
+
+# --- Barrera contra pantalla ilegible ----------------------------------------
+def validar_rampa(r: Sequence[int]) -> None:
+    """Lanza ``RampaIlegible`` si la rampa no es segura de aplicar.
+
+    Comprueba, en cada canal: valores enteros de 16 bits, monotonía no decreciente,
+    rango de salida suficiente y valor central dentro de unos márgenes.
+    """
+    if len(r) != LONGITUD_RAMPA:
+        raise RampaIlegible(f"la rampa debe tener {LONGITUD_RAMPA} valores y tiene {len(r)}.")
+    for n, letra in enumerate("RGB"):
+        canal = r[n * PUNTOS:(n + 1) * PUNTOS]
+        if not all(isinstance(x, int) and 0 <= x <= MAXIMO for x in canal):
+            raise RampaIlegible(f"la rampa del canal {letra} tiene valores no válidos.")
+        if any(x > y for x, y in zip(canal, canal[1:])):
+            raise RampaIlegible(
+                f"la rampa dejaría la pantalla casi ilegible (canal {letra} no monótono)."
+            )
+        rango = (canal[-1] - canal[0]) / MAXIMO
+        if rango < RANGO_SALIDA_MIN:
+            raise RampaIlegible(
+                "la rampa dejaría la pantalla casi ilegible "
+                f"(rango de salida demasiado bajo en el canal {letra}: {rango:.0%})."
+            )
+        centro = canal[PUNTOS // 2] / MAXIMO
+        if not CENTRO_MIN <= centro <= CENTRO_MAX:
+            raise RampaIlegible(
+                "la rampa dejaría la pantalla casi ilegible "
+                f"(valor central fuera del {CENTRO_MIN:.0%}–{CENTRO_MAX:.0%} en el canal {letra})."
+            )
