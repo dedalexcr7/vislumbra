@@ -23,8 +23,8 @@ _PRIMARY_DEVICE = 0x4
 _MIRRORING_DRIVER = 0x8
 
 # Diferencia máxima (en la escala de 16 bits) entre lo aplicado y lo leído para
-# considerar que coinciden. Provisional: se mide en la sesión de test.
-TOLERANCIA_LECTURA = 512
+# considerar que coinciden. Medida en la sesión de test: 0 en todos los ajustes aceptados.
+TOLERANCIA_LECTURA = 64  # = max(64, 2 × 0 observado)
 
 
 class ErrorPantalla(Exception):
