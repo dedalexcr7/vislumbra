@@ -17,7 +17,7 @@ from typing import Sequence
 BRILLO_MIN, BRILLO_MAX = -125.0, 125.0
 CONTRASTE_MIN, CONTRASTE_MAX = -82.0, 82.0
 GAMMA_MIN, GAMMA_MAX = 0.5, 4.0
-TEMPERATURA_MIN, TEMPERATURA_MAX = 2500.0, 10000.0
+TEMPERATURA_MIN, TEMPERATURA_MAX = 3300.0, 10000.0  # Windows rechaza por debajo de ~3250 K
 TEMPERATURA_NEUTRA = 6500.0
 
 # Umbrales del validador de rampas (provisionales, se afinan en la sesión de test)

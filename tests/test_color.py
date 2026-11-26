@@ -18,7 +18,7 @@ def test_ajuste_neutro_es_valido():
 
 @pytest.mark.parametrize("extremo", [
     dict(brillo=125), dict(brillo=-125), dict(contraste=82), dict(contraste=-82),
-    dict(gamma=0.5), dict(gamma=4.0), dict(temperatura=2500), dict(temperatura=10000),
+    dict(gamma=0.5), dict(gamma=4.0), dict(temperatura=3300), dict(temperatura=10000),
 ])
 def test_los_extremos_de_cada_rango_son_validos(extremo):
     color.validar_ajuste(Ajuste.uniforme(**extremo))
@@ -27,7 +27,7 @@ def test_los_extremos_de_cada_rango_son_validos(extremo):
 @pytest.mark.parametrize("malo", [
     dict(gamma=7), dict(gamma=0), dict(gamma=-1), dict(gamma=0.49),
     dict(brillo=126), dict(brillo=-125.5), dict(contraste=83), dict(contraste=-90),
-    dict(temperatura=2000), dict(temperatura=12000),
+    dict(temperatura=2000), dict(temperatura=3299), dict(temperatura=12000),
 ])
 def test_valores_fuera_de_rango_se_rechazan(malo):
     with pytest.raises(ValorFueraDeRango):
@@ -104,7 +104,7 @@ GRILLA = [
     Ajuste.uniforme(brillo=b, contraste=c, gamma=g, temperatura=t)
     for b, c, g, t in itertools.product(
         (-125, -60, 0, 60, 125), (-82, -30, 0, 5, 30, 82),
-        (0.5, 1.0, 1.7, 2.5, 4.0), (2500, 6500, 10000),
+        (0.5, 1.0, 1.7, 2.5, 4.0), (3300, 6500, 10000),
     )
 ]
 
@@ -147,7 +147,7 @@ def test_kelvin_invalido_se_rechaza(k):
 
 
 def test_la_temperatura_se_aplica_a_la_rampa():
-    r = color.construir_rampa(Ajuste.uniforme(temperatura=3000))
+    r = color.construir_rampa(Ajuste.uniforme(temperatura=3500))
     rojo, verde, azul = r[255], r[256 + 255], r[512 + 255]
     assert rojo == 65535 and azul < verde < rojo
 
