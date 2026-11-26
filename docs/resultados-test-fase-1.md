@@ -1,6 +1,6 @@
 # Resultados del test de la fase 1
 
-Sesión de test del 2026-11-26. Sin modelos de monitor ni de GPU: solo «monitor N». **Estado: parcial.** Hecha la calibración de la escala; siguen pendientes la lista visual V6–V12 y las pruebas de proceso P1–P8 (ver el final).
+Sesión de test del 2026-11-26. Sin modelos de monitor ni de GPU: solo «monitor N». **Estado: completa salvo lo marcado como pendiente al final** (P5, P8 y V12, y algunas comprobaciones opcionales).
 
 ## 1. Tests automáticos
 - `pytest -q`: **212 pruebas en verde, 6 saltadas** (las 6 llevan el marcador `pantalla`).
@@ -84,7 +84,31 @@ Consecuencias:
 **Observaciones.** El contraste positivo **aplasta los negros** y recorta los blancos: sirve para compensar el gamma, no para ver mejor lo oscuro por sí solo. Con la escala nueva, las referencias del autor (contraste 5 en RivaTuner) equivalen a **contraste 7,5**; falta confirmar que «se sienten bien». Con los rangos nuevos las esquinas ya no son ilegibles: el validador sigue rechazando, por ejemplo, brillo −100 con gamma 0,5 (centro bajo el 10 %).
 **No calibrado:** contraste y brillo negativos (solo brillo −40), gamma entre 1,2 y 2,0 y por encima de 2,5, y los umbrales del validador.
 
-## 6. Pendiente (necesita al usuario)
-- Lista visual V6–V12 (canal, temperatura, monitores, Ctrl+C, V11 y juego sin bordes). V1 se comprobó por ejecución, y V2–V5 con la calibración.
-- Pruebas de proceso P1–P8, incluida la decisión sobre `--persist`.
+## 6. Lista visual y pruebas de proceso
+Hechas con el usuario mirando (patrón de grises o los monitores), siempre con comprobación de las rampas por lectura al terminar.
+
+| Prueba | Resultado |
+|---|---|
+| V1 `--list` | por ejecución: 3 monitores, el 2 principal |
+| V2 y V3 (gamma 1,7 y 2,5 con contraste 5) | se veía bien en lo oscuro; sin tintes ni bandas |
+| V4 brillo ±40 | −40: todos los oscuros en negro; +40: sin blancos, muy brillante. Coincide con el cálculo |
+| V5 contraste | ver §5 |
+| V6 canal rojo con gamma 1,5 | todo lo oscuro se va a rojo, como se esperaba |
+| V7 temperatura | 4000 K: todo rojizo; 9000 K: azulado |
+| V8 / P6 monitor 1 y monitor 3 | cambia solo el monitor elegido, por separado |
+| V9 / P7 `--monitor todos` | los 3 cambian a la vez y vuelven a la vez |
+| V10 / P1 Ctrl+C real | «Pantalla restaurada.» y rampas en identidad. **El código de salida no se pudo ver**: PowerShell interrumpe también el resto de la línea; el 0 solo está probado con dobles |
+| V11 valores inválidos | `--brightness 125` (código 1, fuera de rango) y `--brightness -100 --gamma 0.5` (código 1, ilegible): sin ningún cambio en pantalla |
+| **P2 `--persist`** | **La rampa sobrevive al proceso**: sigue aplicada a los 5 s, al minuto y tras Win+L y desbloquear (monitor 2 con desviación 6307, los otros en 0). `--reset` la deshace. **Se conserva `--persist`.** No probado: suspensión, UAC, cambio de resolución |
+| P3a cerrar la pestaña | restaurado, sin procesos sobrantes (I-8: el manejador de consola llegó a tiempo) |
+| P3b cerrar la ventana entera | restaurado, sin procesos sobrantes |
+| P3c consola clásica (`conhost`) | restaurado, sin procesos sobrantes |
+| P4 muerte forzada | la rampa **se queda aplicada**, como se esperaba; `--reset` la arregla (código 0). El entorno virtual crea dos procesos (lanzador e intérprete hijo); se mató el hijo por su número |
+
+Nota: `--reset | Select-Object -First 1` devuelve el código −1; es un efecto de cortar la tubería en PowerShell, no de la app (sin tubería da 0).
+
+## 7. Pendiente
+- **P5** (Ctrl+Pausa / `SIGBREAK`): saltada, el usuario no tiene la tecla. Solo verificado con un test con dobles.
+- **P8 y V12** (juego en modo sin bordes): el usuario lo probará en el juego. Es importante para el diseño de la fase 2: ver si la rampa se mantiene o el juego la reinicia.
+- Opcionales de P2 (suspender, UAC), I-9 (rampa original distinta de la identidad) y el sondeo visual de gamma 3 y 4, brillo y contraste negativos, y los umbrales del validador.
 - Confirmar las referencias 0/7,5/1,7 y 0/7,5/2,5 en la escala nueva.

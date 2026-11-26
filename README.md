@@ -25,9 +25,10 @@ python -m vislumbra --reset                         # rampa neutra en todos los 
 
 Los decimales admiten punto o coma. Por defecto actúa sobre el monitor principal (`--monitor principal|todos|N`).
 Mientras la orden está en marcha, la rampa se mantiene; al cerrarla (Ctrl+C, cerrar la ventana) se restaura la original. Con `--persist` se queda aplicada: úsalo solo si sabes deshacerlo con `--reset`.
+Con `--persist` la rampa sigue aplicada cuando el proceso ya ha terminado. Comprobado (un solo equipo): tras 1 minuto y tras bloquear y desbloquear la sesión (Win+L). **Sin comprobar:** suspensión, avisos de control de cuentas (UAC), cambios de resolución y reinicio. Se deshace siempre con `--reset`. Si el proceso se mata a la fuerza (sin `--persist`), la rampa también se queda aplicada hasta `--reset`.
 
 **Si algo sale mal:** abre otra terminal y ejecuta `python -m vislumbra --reset`. Si no puedes, reiniciar Windows también devuelve la pantalla a la normal (sin verificar).
-Los rangos son provisionales y la orden rechaza ajustes que dejarían la pantalla casi ilegible.
+Los rangos se calibraron en un solo equipo y pueden ajustarse. La orden rechaza ajustes que dejarían la pantalla casi ilegible, y Windows rechaza los que se desvían demasiado de la rampa neutra (por ejemplo, temperaturas por debajo de unos 3300 K).
 
 ## Cómo funciona
 Usa la rampa de gamma de Windows (GDI), sin tocar el registro ni los drivers. La configuración de cada usuario se guarda en `%APPDATA%\vislumbra`, fuera del repositorio.
