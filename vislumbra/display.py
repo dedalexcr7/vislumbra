@@ -11,8 +11,9 @@ import ctypes
 import signal
 import sys
 import threading
+from collections.abc import Iterable
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from . import color
 from .color import Rampa
@@ -75,6 +76,15 @@ class Monitor:
     adaptador: str
     nombre: str | None  # segundo nivel de EnumDisplayDevices; puede faltar
     principal: bool
+    id_monitor: str | None = None  # DeviceID del monitor; incluye un código del modelo
+
+    @property
+    def clave(self) -> str:
+        """Identificador estable para guardar ajustes por monitor (no cambia con el número).
+
+        Contiene datos del equipo: solo se guarda en ``%APPDATA%``, nunca en el repositorio.
+        """
+        return self.id_monitor or self.dispositivo
 
 
 def _enumerar(dispositivo: str | None, indice: int) -> _DisplayDevice | None:
@@ -102,9 +112,19 @@ def listar_monitores() -> list[Monitor]:
                 adaptador=d.DeviceString,
                 nombre=hijo.DeviceString if hijo is not None and hijo.DeviceString else None,
                 principal=bool(d.StateFlags & _PRIMARY_DEVICE),
+                id_monitor=hijo.DeviceID if hijo is not None and hijo.DeviceID else None,
             )
         )
-    return monitores
+    return _claves_unicas(monitores)
+
+
+def _claves_unicas(monitores: list[Monitor]) -> list[Monitor]:
+    """Si dos monitores comparten ``DeviceID``, añade el dispositivo para distinguirlos."""
+    repetidas = {m.clave for m in monitores if sum(o.clave == m.clave for o in monitores) > 1}
+    return [
+        replace(m, id_monitor=f"{m.clave}|{m.dispositivo}") if m.clave in repetidas else m
+        for m in monitores
+    ]
 
 
 def elegir_monitores(seleccion: str, monitores: list[Monitor]) -> list[Monitor]:
@@ -271,35 +291,59 @@ class SesionGamma:
 
     # -- acciones
     def aplicar(self, r: Rampa) -> list[Monitor]:
-        """Aplica ``r`` a todos los monitores de la sesión.
+        """Aplica la misma rampa ``r`` a todos los monitores de la sesión."""
+        return self.aplicar_por_monitor({m.numero: r for m in self.monitores})
 
-        Valida antes de tocar nada. Si falla uno, deshace los ya aplicados en esta
-        llamada y vuelve a lanzar el error. Devuelve los monitores que aceptaron la
-        rampa pero cuya lectura posterior no coincide (aviso, no error).
+    def aplicar_por_monitor(self, rampas: dict[int, Rampa | None]) -> list[Monitor]:
+        """Aplica a cada monitor indicado su propia rampa; ``None`` restaura su original.
+
+        Los monitores que no aparecen en ``rampas`` no se tocan. Valida antes de
+        tocar nada. Si falla uno, deshace los ya intentados en esta llamada y vuelve a
+        lanzar el error. Devuelve los monitores que aceptaron la rampa pero cuya
+        lectura posterior no coincide (aviso, no error).
         """
-        color.validar_rampa(r)
+        desconocidos = set(rampas) - {m.numero for m in self.monitores}
+        if desconocidos:
+            raise MonitorNoEncontrado(
+                f"el monitor {min(desconocidos)} no forma parte de la sesión."
+            )
+        for r in rampas.values():
+            if r is not None:
+                color.validar_rampa(r)
         intentados: list[Monitor] = []
         sin_coincidir: list[Monitor] = []
         with self._bloqueo:
             try:
                 for m in self.monitores:
+                    if m.numero not in rampas:
+                        continue
                     # Se marca antes de escribir: si falla la lectura posterior o llega un
                     # Ctrl+C, el monitor ya cuenta como tocado y se restaura (hacerlo con uno
                     # que no llegó a cambiar es inocuo).
                     intentados.append(m)
                     self._tocados.add(m.numero)
-                    coincide = aplicar_rampa(m, r, validar=False)
-                    if not coincide:
+                    r = rampas[m.numero]
+                    if r is None:
+                        _escribir(m, self._originales[m.numero])
+                        self._tocados.discard(m.numero)
+                    elif not aplicar_rampa(m, r, validar=False):
                         sin_coincidir.append(m)
             except BaseException:
                 self._restaurar_monitores(intentados, silencioso=True)
                 raise
         return sin_coincidir
 
-    def restaurar(self) -> None:
-        """Devuelve cada monitor tocado a su rampa original. Idempotente."""
+    def restaurar(self, solo: Iterable[int] | None = None) -> None:
+        """Devuelve cada monitor tocado a su rampa original. Idempotente.
+
+        ``solo``: números de los monitores a restaurar (por defecto, todos los tocados).
+        """
         with self._bloqueo:
-            pendientes = [m for m in self.monitores if m.numero in self._tocados]
+            elegidos = None if solo is None else set(solo)
+            pendientes = [
+                m for m in self.monitores
+                if m.numero in self._tocados and (elegidos is None or m.numero in elegidos)
+            ]
             self._restaurar_monitores(pendientes, silencioso=False)
 
     def conservar(self) -> None:

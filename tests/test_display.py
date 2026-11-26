@@ -293,6 +293,80 @@ def test_real_reversion_parcial(monitores_reales, rampas_guardadas, sin_ganchos_
         assert display.leer_rampa(segundo) == rampas_guardadas[segundo.numero]
 
 
+
+# --- Claves de monitor y rampa distinta por monitor (fase 2) -------------------------------------
+def test_la_clave_usa_el_id_del_monitor_o_el_dispositivo_de_respaldo():
+    con_id = Monitor(1, r"\\.\DISPLAY9", "A", None, True, id_monitor=r"MONITOR\XYZ\0001")
+    sin_id = Monitor(2, r"\\.\DISPLAY8", "A", None, False)
+    assert con_id.clave == r"MONITOR\XYZ\0001"
+    assert sin_id.clave == r"\\.\DISPLAY8"
+
+
+def test_claves_repetidas_se_distinguen_por_dispositivo():
+    a = Monitor(1, r"\\.\DISPLAY1", "A", None, True, id_monitor="MISMO")
+    b = Monitor(2, r"\\.\DISPLAY2", "A", None, False, id_monitor="MISMO")
+    c = Monitor(3, r"\\.\DISPLAY3", "A", None, False, id_monitor="OTRO")
+    claves = [m.clave for m in display._claves_unicas([a, b, c])]
+    assert len(set(claves)) == 3 and claves[2] == "OTRO"
+    assert claves[0] != claves[1] and "DISPLAY1" in claves[0]
+
+
+def test_las_claves_reales_son_unicas(monitores_reales):
+    assert len({m.clave for m in monitores_reales}) == len(monitores_reales)
+
+
+def test_aplicar_por_monitor_da_a_cada_uno_su_rampa(pantalla_falsa):
+    otra = color.construir_rampa_segura(color.Ajuste.uniforme(0.0, 0.0, 1.5, color.TEMPERATURA_NEUTRA))
+    with SesionGamma(FALSOS) as sesion:
+        assert sesion.aplicar_por_monitor({1: AJUSTE_SUAVE, 3: otra}) == []
+        assert pantalla_falsa.rampa(1) == AJUSTE_SUAVE
+        assert pantalla_falsa.rampa(2) == IDENTIDAD and pantalla_falsa.escrituras_en(2) == []
+        assert pantalla_falsa.rampa(3) == otra
+        assert sesion._tocados == {1, 3}
+
+
+def test_aplicar_por_monitor_con_none_restaura_el_original_de_ese_monitor(pantalla_falsa):
+    with SesionGamma(FALSOS) as sesion:
+        sesion.aplicar_por_monitor({1: AJUSTE_SUAVE, 2: AJUSTE_SUAVE})
+        sesion.aplicar_por_monitor({1: None})
+        assert pantalla_falsa.rampa(1) == IDENTIDAD and pantalla_falsa.rampa(2) == AJUSTE_SUAVE
+        assert sesion._tocados == {2}
+
+
+def test_aplicar_por_monitor_valida_antes_de_tocar_nada(pantalla_falsa):
+    ilegible = [0] * 768
+    with SesionGamma(FALSOS) as sesion:
+        with pytest.raises(color.RampaIlegible):
+            sesion.aplicar_por_monitor({1: AJUSTE_SUAVE, 2: ilegible})
+        assert pantalla_falsa.escrituras == []
+
+
+def test_aplicar_por_monitor_con_monitor_desconocido(pantalla_falsa):
+    with SesionGamma(FALSOS) as sesion:
+        with pytest.raises(MonitorNoEncontrado):
+            sesion.aplicar_por_monitor({7: AJUSTE_SUAVE})
+
+
+def test_aplicar_por_monitor_deshace_los_de_la_llamada_si_uno_falla(pantalla_falsa):
+    with SesionGamma(FALSOS) as sesion:
+        sesion.aplicar_por_monitor({3: AJUSTE_SUAVE})
+        pantalla_falsa.fallar_escritura(2, RampaRechazada("rechazada"), una_vez=True)
+        with pytest.raises(RampaRechazada):
+            sesion.aplicar_por_monitor({1: AJUSTE_SUAVE, 2: AJUSTE_SUAVE})
+        assert pantalla_falsa.rampa(1) == IDENTIDAD  # deshecho
+        assert pantalla_falsa.rampa(3) == AJUSTE_SUAVE  # de una llamada anterior: se conserva
+
+
+def test_restaurar_solo_los_indicados(pantalla_falsa):
+    with SesionGamma(FALSOS) as sesion:
+        sesion.aplicar(AJUSTE_SUAVE)
+        sesion.restaurar(solo=[2])
+        assert pantalla_falsa.rampa(2) == IDENTIDAD
+        assert pantalla_falsa.rampa(1) == AJUSTE_SUAVE and pantalla_falsa.rampa(3) == AJUSTE_SUAVE
+        sesion.restaurar()
+        assert all(pantalla_falsa.rampa(n) == IDENTIDAD for n in (1, 2, 3))
+
+
 # --- Sondeo de límites (informa, nunca falla por los resultados) -------------------------
 def _escalera():
     uniforme = color.Ajuste.uniforme
