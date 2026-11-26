@@ -218,3 +218,122 @@ def test_senal_sigbreak_restaura_y_sale_con_codigo_1(monkeypatch):
     with pytest.raises(SystemExit) as e:
         sesion._al_recibir_senal(signal.SIGBREAK, None)
     assert e.value.code == 1 and llamadas == [1]
+
+
+# --- Escritura real (solo con --con-pantalla) ------------------------------------------
+# Ajustes siempre suaves. ``rampas_guardadas`` devuelve las rampas originales al acabar,
+# aunque la prueba falle. Con ``-s`` se imprimen las diferencias de lectura medidas.
+@pytest.fixture
+def sin_ganchos_de_salida(monkeypatch):
+    """Aquí se prueba el ``with``, no las señales ni ``atexit``."""
+    monkeypatch.setattr(display.atexit, "register", lambda *a, **k: None)
+    monkeypatch.setattr(display.atexit, "unregister", lambda *a, **k: None)
+    monkeypatch.setattr(SesionGamma, "_instalar_manejadores", lambda self: None)
+    monkeypatch.setattr(SesionGamma, "_desinstalar_manejadores", lambda self: None)
+
+
+def _diferencia_maxima(a, b):
+    return max(abs(x - y) for x, y in zip(a, b))
+
+
+@pytest.mark.pantalla
+def test_real_identidad_se_acepta_y_se_lee_exacta(monitores_reales, rampas_guardadas):
+    for m in monitores_reales:
+        assert display.aplicar_rampa(m, IDENTIDAD) is True
+        assert display.leer_rampa(m) == IDENTIDAD
+
+
+@pytest.mark.pantalla
+def test_real_gamma_suave_y_diferencia_de_lectura(monitores_reales, rampas_guardadas):
+    for m in monitores_reales:
+        coincide = display.aplicar_rampa(m, AJUSTE_SUAVE)
+        diferencia = _diferencia_maxima(display.leer_rampa(m), AJUSTE_SUAVE)
+        print(f"\nmonitor {m.numero}: gamma 1,2 -> diferencia de lectura máx. {diferencia}")
+        assert diferencia <= display.TOLERANCIA_LECTURA and coincide
+
+
+@pytest.mark.pantalla
+def test_real_restaurar_devuelve_el_original(monitores_reales, rampas_guardadas, sin_ganchos_de_salida):
+    with SesionGamma(monitores_reales) as sesion:
+        sesion.aplicar(AJUSTE_SUAVE)
+        sesion.restaurar()
+        for m in monitores_reales:
+            assert display.leer_rampa(m) == rampas_guardadas[m.numero]
+
+
+@pytest.mark.pantalla
+def test_real_excepcion_dentro_del_with_restaura(monitores_reales, rampas_guardadas, sin_ganchos_de_salida):
+    with pytest.raises(RuntimeError):
+        with SesionGamma(monitores_reales) as sesion:
+            sesion.aplicar(AJUSTE_SUAVE)
+            raise RuntimeError("fallo ajeno")
+    for m in monitores_reales:
+        assert display.leer_rampa(m) == rampas_guardadas[m.numero]
+
+
+@pytest.mark.pantalla
+def test_real_reversion_parcial(monitores_reales, rampas_guardadas, sin_ganchos_de_salida, monkeypatch):
+    if len(monitores_reales) < 2:
+        pytest.skip("hace falta más de un monitor")
+    primero, segundo = monitores_reales[0], monitores_reales[1]
+    escribir_real = display._escribir
+    pendiente = [True]
+
+    def escribir(m, r):
+        if m.numero == segundo.numero and pendiente[0]:
+            pendiente[0] = False
+            raise RampaRechazada("rechazada a propósito")  # antes de escribir de verdad
+        escribir_real(m, r)
+
+    monkeypatch.setattr(display, "_escribir", escribir)
+    with SesionGamma([primero, segundo]) as sesion:
+        with pytest.raises(RampaRechazada):
+            sesion.aplicar(AJUSTE_SUAVE)
+        assert display.leer_rampa(primero) == rampas_guardadas[primero.numero]
+        assert display.leer_rampa(segundo) == rampas_guardadas[segundo.numero]
+
+
+# --- Sondeo de límites (informa, nunca falla por los resultados) -------------------------
+def _escalera():
+    uniforme = color.Ajuste.uniforme
+    n = color.TEMPERATURA_NEUTRA
+    ajustes = [(f"gamma {g}", uniforme(0, 0, g, n)) for g in (1.5, 2.0, 2.5, 3.0, 3.5, 4.0)]
+    ajustes += [(f"brillo {b:+d}", uniforme(b, 0, 1.0, n)) for b in (25, 50, 75, -25, -50, -60)]
+    ajustes += [(f"contraste {c:+d}", uniforme(0, c, 1.0, n)) for c in (20, 40, 82, -20, -40)]
+    ajustes += [(f"temp {t}", uniforme(0, 0, 1.0, t)) for t in (5000, 4000, 3500, 3000, 2500, 8000, 10000)]
+    ajustes += [("0/5/1,7", uniforme(0, 5, 1.7, n)), ("0/5/2,5", uniforme(0, 5, 2.5, n))]
+    return ajustes
+
+
+@pytest.mark.pantalla
+def test_sondeo_limites(monitores_reales, rampas_guardadas):
+    import time
+
+    filas = []
+    for m in monitores_reales:
+        original = rampas_guardadas[m.numero]
+        for nombre, ajuste in _escalera():
+            rampa = color.construir_rampa(ajuste)
+            try:
+                color.validar_rampa(rampa)
+            except color.RampaIlegible as e:
+                filas.append((nombre, m.numero, "rechazada por el validador", "—", str(e)[:60]))
+                continue
+            try:
+                display._escribir(m, rampa)
+                diferencia = _diferencia_maxima(display.leer_rampa(m), rampa)
+                filas.append((nombre, m.numero, "aceptada", diferencia, ""))
+            except RampaRechazada:
+                filas.append((nombre, m.numero, "rechazada por Windows", "—", ""))
+            except ErrorPantalla as e:
+                filas.append((nombre, m.numero, "error de pantalla", "—", str(e)[:60]))
+            finally:
+                try:
+                    display._escribir(m, original)
+                except ErrorPantalla:
+                    pass
+                time.sleep(0.3)
+    print("\n\nSONDEO DE LÍMITES")
+    print(f"{'ajuste':<14}{'monitor':<9}{'Windows / validador':<28}{'dif. lectura máx.':<19}notas")
+    for nombre, numero, estado, diferencia, nota in filas:
+        print(f"{nombre:<14}{numero:<9}{estado:<28}{str(diferencia):<19}{nota}")
