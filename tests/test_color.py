@@ -231,3 +231,35 @@ def test_invariante_de_seguridad_en_la_rejilla():
 ])
 def test_neutro_y_valores_de_referencia_validan(ajuste):
     color.validar_rampa(color.construir_rampa(ajuste))
+
+
+# --- Límite de desviación de Windows (I-12) ---------------------------------------
+def test_desviacion_de_la_identidad_es_cero():
+    assert color.desviacion(color.rampa_identidad()) == 0
+
+
+def test_desviacion_mide_la_mayor_distancia():
+    r = color.rampa_identidad()
+    r[300] += 1234
+    assert color.desviacion(r) == 1234
+
+
+@pytest.mark.parametrize("ajuste", [
+    Ajuste.uniforme(temperatura=3300, contraste=-20),  # 52,7 % según el plan
+    Ajuste.uniforme(temperatura=3300, brillo=-45),  # 54,5 %
+])
+def test_i12_se_rechaza_lo_que_windows_rechazaria(ajuste):
+    with pytest.raises(RampaIlegible, match="supera lo que Windows permite"):
+        color.validar_rampa(color.construir_rampa(ajuste))
+
+
+@pytest.mark.parametrize("ajuste", [
+    Ajuste.uniforme(temperatura=3300),  # 31 652
+    Ajuste.uniforme(gamma=4.0),
+    Ajuste.uniforme(contraste=7.5, gamma=1.7),
+    Ajuste.uniforme(contraste=7.5, gamma=2.5),
+])
+def test_i12_siguen_siendo_validos(ajuste):
+    r = color.construir_rampa(ajuste)
+    assert color.desviacion(r) <= color.DESVIACION_MAX
+    color.validar_rampa(r)

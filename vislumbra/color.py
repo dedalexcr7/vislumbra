@@ -174,12 +174,24 @@ def kelvin_a_rgb(kelvin: float) -> tuple[float, float, float]:
     return tuple(c / maximo for c in relativo)  # type: ignore[return-value]
 
 
-# --- Barrera contra pantalla ilegible ----------------------------------------
+# --- Barrera contra pantalla ilegible y límite de Windows --------------------
+# Windows rechaza la rampa si algún valor se aleja más de 32 768 (el 50 %) de la
+# identidad. Deducido de los datos del test de la fase 1 (3250 K aceptada con 32 450,
+# 3200 K rechazada con 33 266); no es una regla documentada. Se deja un margen.
+DESVIACION_MAX = 32_000
+
+
+def desviacion(r: Sequence[int]) -> int:
+    """Mayor distancia (en la escala de 16 bits) entre la rampa y la identidad."""
+    return max(abs(x - y) for x, y in zip(r, rampa_identidad()))
+
+
 def validar_rampa(r: Sequence[int]) -> None:
     """Lanza ``RampaIlegible`` si la rampa no es segura de aplicar.
 
-    Comprueba, en cada canal: valores enteros de 16 bits, monotonía no decreciente,
-    rango de salida suficiente y valor central dentro de unos márgenes.
+    Comprueba: 768 enteros de 16 bits, desviación máxima de la identidad (límite de
+    Windows) y, en cada canal, monotonía no decreciente, rango de salida suficiente
+    y valor central dentro de unos márgenes.
     """
     if len(r) != LONGITUD_RAMPA:
         raise RampaIlegible(f"la rampa debe tener {LONGITUD_RAMPA} valores y tiene {len(r)}.")
@@ -187,6 +199,8 @@ def validar_rampa(r: Sequence[int]) -> None:
         canal = r[n * PUNTOS:(n + 1) * PUNTOS]
         if not all(isinstance(x, int) and 0 <= x <= MAXIMO for x in canal):
             raise RampaIlegible(f"la rampa del canal {letra} tiene valores no válidos.")
+    for n, letra in enumerate("RGB"):
+        canal = r[n * PUNTOS:(n + 1) * PUNTOS]
         if any(x > y for x, y in zip(canal, canal[1:])):
             raise RampaIlegible(
                 f"este ajuste dejaría la pantalla casi ilegible (canal {letra} no monótono)."
@@ -203,3 +217,9 @@ def validar_rampa(r: Sequence[int]) -> None:
                 "este ajuste dejaría la pantalla casi ilegible "
                 f"(valor central fuera del {CENTRO_MIN:.0%}–{CENTRO_MAX:.0%} en el canal {letra})."
             )
+    d = desviacion(r)
+    if d > DESVIACION_MAX:
+        raise RampaIlegible(
+            "este ajuste supera lo que Windows permite: la rampa se aleja demasiado de la "
+            f"neutra (desviación {d} de un máximo de {DESVIACION_MAX})."
+        )
