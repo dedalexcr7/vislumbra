@@ -229,7 +229,8 @@ def _aplicar(a: argparse.Namespace, rampa: color.Rampa) -> int:
             print(f"Aplicado {destino}: {descripcion}.")
             print("Aviso: la rampa se queda aplicada al terminar. Usa --reset para volver a la normal.")
             return OK
-        pista = f"Se restaurará en {_fmt(a.duration, 0)} s." if a.duration else "Pulsa Ctrl+C para restaurar."
+        pista = (f"Se restaurará en {f'{a.duration:g}'.replace('.', ',')} s."
+                 if a.duration else "Pulsa Ctrl+C para restaurar.")
         print(f"Aplicado {destino}: {descripcion}. {pista}", flush=True)
         try:
             _esperar(a.duration)

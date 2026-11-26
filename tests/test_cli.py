@@ -118,6 +118,11 @@ def test_duration_espera_y_restaura(capsys, monkeypatch):
     assert "Se restaurará en 5 s." in out
 
 
+def test_duration_con_decimales_se_muestra_completa(capsys):
+    _, out, _ = ejecutar(capsys, "--gamma", "1.2", "--duration", "0,5")
+    assert "Se restaurará en 0,5 s." in out
+
+
 def test_persist_conserva_y_avisa(capsys):
     codigo, out, _ = ejecutar(capsys, "--gamma", "1.2", "--persist")
     assert codigo == 0
@@ -199,6 +204,19 @@ def test_ajuste_ilegible_se_rechaza_sin_aplicar(capsys):
     assert codigo == 1
     assert "dejaría la pantalla casi ilegible" in err and "No se ha aplicado nada." in err
     assert SesionFalsa.creadas == []
+
+
+def test_formas_de_escribir_los_valores_de_argparse(capsys):
+    assert ejecutar(capsys, "--simulate", "--gamma=1,4")[0] == 0
+    codigo, _, err = ejecutar(capsys, "--simulate", "--gamma", "-1")  # valor, no opción
+    assert codigo == 1 and "--gamma -1,0 está fuera del rango" in err
+    codigo, _, err = ejecutar(capsys, "--gamma", "1.2", "--monitor", "0")
+    assert codigo == 3 and "el monitor 0 no existe" in err and SesionFalsa.creadas == []
+
+
+def test_ayuda_tiene_prioridad_sobre_un_valor_invalido(capsys):
+    codigo, out, _ = ejecutar(capsys, "--help", "--gamma", "7")
+    assert codigo == 0 and "Uso:" in out
 
 
 def test_nan_se_rechaza(capsys):
