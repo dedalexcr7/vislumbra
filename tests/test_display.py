@@ -124,7 +124,6 @@ def test_reversion_parcial_si_windows_rechaza_a_mitad(pantalla_falsa):
         assert sesion._tocados == set()
 
 
-@pytest.mark.xfail(strict=True, reason="I-1: un fallo de lectura deja el monitor sin restaurar")
 def test_fallo_en_la_lectura_posterior_restaura_el_monitor(pantalla_falsa):
     with SesionGamma(FALSOS) as sesion:
         pantalla_falsa.fallo_lectura[1] = ErrorPantalla("lectura imposible")
@@ -133,7 +132,6 @@ def test_fallo_en_la_lectura_posterior_restaura_el_monitor(pantalla_falsa):
     assert pantalla_falsa.rampa(1) == IDENTIDAD
 
 
-@pytest.mark.xfail(strict=True, reason="I-1: KeyboardInterrupt a mitad de aplicar deja el monitor sin restaurar")
 def test_keyboardinterrupt_a_mitad_de_aplicar_restaura_lo_escrito(pantalla_falsa):
     with pytest.raises(KeyboardInterrupt):
         with SesionGamma(FALSOS) as sesion:

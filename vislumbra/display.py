@@ -278,18 +278,21 @@ class SesionGamma:
         rampa pero cuya lectura posterior no coincide (aviso, no error).
         """
         color.validar_rampa(r)
-        aplicados: list[Monitor] = []
+        intentados: list[Monitor] = []
         sin_coincidir: list[Monitor] = []
         with self._bloqueo:
             try:
                 for m in self.monitores:
-                    coincide = aplicar_rampa(m, r, validar=False)
-                    aplicados.append(m)
+                    # Se marca antes de escribir: si falla la lectura posterior o llega un
+                    # Ctrl+C, el monitor ya cuenta como tocado y se restaura (hacerlo con uno
+                    # que no llegó a cambiar es inocuo).
+                    intentados.append(m)
                     self._tocados.add(m.numero)
+                    coincide = aplicar_rampa(m, r, validar=False)
                     if not coincide:
                         sin_coincidir.append(m)
-            except Exception:
-                self._restaurar_monitores(aplicados, silencioso=True)
+            except BaseException:
+                self._restaurar_monitores(intentados, silencioso=True)
                 raise
         return sin_coincidir
 
