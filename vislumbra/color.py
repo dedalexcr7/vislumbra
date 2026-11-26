@@ -128,4 +128,43 @@ def rampa_identidad() -> Rampa:
 def construir_rampa(a: Ajuste) -> Rampa:
     """Valida el ajuste y devuelve la rampa de 768 valores (R, G y B seguidos)."""
     validar_ajuste(a)
-    return curva_canal(a.r) + curva_canal(a.g) + curva_canal(a.b)
+    fr, fg, fb = kelvin_a_rgb(a.temperatura)
+    return curva_canal(a.r, fr) + curva_canal(a.g, fg) + curva_canal(a.b, fb)
+
+
+# --- Temperatura de color -----------------------------------------------------
+def _recortar255(x: float) -> float:
+    return min(255.0, max(0.0, x))
+
+
+def _rgb_helland(kelvin: float) -> tuple[float, float, float]:
+    """Color aproximado de un cuerpo negro, canales de 0 a 1.
+
+    Aproximación pública de Tanner Helland («How to Convert Temperature (K) to
+    RGB: Algorithm and Sample Code», 2012), escrita aquí de nuevo a partir de
+    sus fórmulas; no se copia código de otros proyectos.
+    """
+    t = kelvin / 100.0
+    if t <= 66:
+        r = 255.0
+        g = 99.4708025861 * math.log(t) - 161.1195681661
+    else:
+        r = 329.698727446 * (t - 60.0) ** -0.1332047592
+        g = 288.1221695283 * (t - 60.0) ** -0.0755148492
+    if t >= 66:
+        b = 255.0
+    elif t <= 19:
+        b = 0.0
+    else:
+        b = 138.5177312231 * math.log(t - 10.0) - 305.0447927307
+    return _recortar255(r) / 255.0, _recortar255(g) / 255.0, _recortar255(b) / 255.0
+
+
+def kelvin_a_rgb(kelvin: float) -> tuple[float, float, float]:
+    """Factor RGB para multiplicar la rampa: 6500 K da (1, 1, 1) y ningún canal supera 1."""
+    if not math.isfinite(kelvin) or kelvin <= 0:
+        raise ValorFueraDeRango("temperatura debe ser un número finito y positivo.")
+    base = _rgb_helland(TEMPERATURA_NEUTRA)
+    relativo = [c / n for c, n in zip(_rgb_helland(kelvin), base)]
+    maximo = max(relativo)
+    return tuple(c / maximo for c in relativo)  # type: ignore[return-value]

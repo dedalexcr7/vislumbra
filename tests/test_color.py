@@ -115,3 +115,38 @@ def test_curvas_monotonas_y_en_rango_en_una_rejilla(a):
     for canal in (r[:256], r[256:512], r[512:]):
         assert all(x <= y for x, y in zip(canal, canal[1:]))
         assert all(0 <= x <= 65535 for x in canal)
+
+
+# --- Temperatura de color -----------------------------------------------------
+def test_6500_kelvin_es_neutro_exacto():
+    assert color.kelvin_a_rgb(6500) == (1.0, 1.0, 1.0)
+
+
+@pytest.mark.parametrize("k", range(2500, 10001, 250))
+def test_canales_de_temperatura_en_cero_uno(k):
+    assert all(0 < c <= 1 for c in color.kelvin_a_rgb(k))
+
+
+def test_tendencias_de_temperatura():
+    r, g, b = color.kelvin_a_rgb(3000)
+    assert b < r
+    r, g, b = color.kelvin_a_rgb(10000)
+    assert r < b
+
+
+def test_valores_de_ejemplo_del_plan():
+    esperado = {2500: (1.0, 0.626, 0.28), 4000: (1.0, 0.81, 0.664), 10000: (0.776, 0.841, 1.0)}
+    for k, e in esperado.items():
+        assert color.kelvin_a_rgb(k) == pytest.approx(e, abs=0.01)
+
+
+@pytest.mark.parametrize("k", [math.nan, math.inf, 0, -5])
+def test_kelvin_invalido_se_rechaza(k):
+    with pytest.raises(ValorFueraDeRango):
+        color.kelvin_a_rgb(k)
+
+
+def test_la_temperatura_se_aplica_a_la_rampa():
+    r = color.construir_rampa(Ajuste.uniforme(temperatura=3000))
+    rojo, verde, azul = r[255], r[256 + 255], r[512 + 255]
+    assert rojo == 65535 and azul < verde < rojo
