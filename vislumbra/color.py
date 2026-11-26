@@ -95,3 +95,37 @@ def validar_ajuste(a: Ajuste) -> None:
         if uniforme:
             break
     _comprobar("temperatura", a.temperatura, TEMPERATURA_MIN, TEMPERATURA_MAX, 0)
+
+
+# --- Conversión de escala y curva por canal ----------------------------------
+def brillo_a_desplazamiento(brillo: float) -> float:
+    return brillo * BRILLO_POR_UNIDAD
+
+
+def contraste_a_factor(contraste: float) -> float:
+    """Factor exponencial: siempre positivo, así la curva nunca se invierte."""
+    return 2.0 ** (contraste / CONTRASTE_ESCALA)
+
+
+def curva_canal(a: AjusteCanal, factor_temp: float = 1.0) -> list[int]:
+    """256 valores de 16 bits para un canal: gamma, contraste, brillo y temperatura."""
+    exponente = 1.0 / a.gamma
+    c = contraste_a_factor(a.contraste)
+    b = brillo_a_desplazamiento(a.brillo)
+    salida = []
+    for i in range(PUNTOS):
+        v = (i / (PUNTOS - 1)) ** exponente
+        v = (v - 0.5) * c + 0.5
+        v = (v + b) * factor_temp
+        salida.append(round(min(1.0, max(0.0, v)) * MAXIMO))
+    return salida
+
+
+def rampa_identidad() -> Rampa:
+    return curva_canal(AjusteCanal()) * 3
+
+
+def construir_rampa(a: Ajuste) -> Rampa:
+    """Valida el ajuste y devuelve la rampa de 768 valores (R, G y B seguidos)."""
+    validar_ajuste(a)
+    return curva_canal(a.r) + curva_canal(a.g) + curva_canal(a.b)
