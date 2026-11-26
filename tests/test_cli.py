@@ -259,3 +259,26 @@ def test_ayuda_en_español(capsys):
 def test_version(capsys):
     codigo, out, _ = ejecutar(capsys, "--version")
     assert codigo == 0 and out.startswith("Vislumbra ")
+
+
+# --- I-5 e I-11b: nada se ignora en silencio ---------------------------------------------------
+@pytest.mark.parametrize("argv, texto", [
+    (["--simulate", "--gamma", "1.2", "--monitor", "2"], "--simulate no toca ninguna pantalla"),
+    (["--list", "--monitor", "2"], "--list no usa --monitor ni --channel"),
+    (["--list", "--channel", "r"], "--list no usa --monitor ni --channel"),
+    (["--reset", "--channel", "r"], "--reset no usa --channel"),
+])
+def test_opciones_que_se_ignorarian_dan_error_de_uso(capsys, argv, texto):
+    codigo, _, err = ejecutar(capsys, *argv)
+    assert codigo == 2 and texto in err
+
+
+def test_monitor_vacio_es_un_error_y_no_cae_al_principal(capsys, pantalla_falsa):
+    codigo, _, err = ejecutar(capsys, "--gamma", "1.2", "--monitor", "")
+    assert codigo == 3 and "no es un monitor válido" in err and SesionFalsa.creadas == []
+    codigo, _, err = ejecutar(capsys, "--reset", "--monitor", "")
+    assert codigo == 3 and pantalla_falsa == []
+
+
+def test_channel_all_explicito_sigue_funcionando(capsys):
+    assert ejecutar(capsys, "--simulate", "--gamma", "1.2", "--channel", "all")[0] == 0

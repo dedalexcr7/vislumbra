@@ -88,7 +88,7 @@ def _crear_parser() -> argparse.ArgumentParser:
     aj.add_argument("--temp", type=_decimal, metavar="K",
                     help=f"temperatura en kelvin, de {color.TEMPERATURA_MIN:.0f} a "
                          f"{color.TEMPERATURA_MAX:.0f} (6500 = neutro)")
-    aj.add_argument("--channel", type=_canal, default="all", metavar="all|r|g|b",
+    aj.add_argument("--channel", type=_canal, default=None, metavar="all|r|g|b",
                     help="canal al que se aplican brillo, contraste y gamma (por defecto, all)")
     de = p.add_argument_group("Destino y duración")
     de.add_argument("--monitor", metavar="principal|todos|N", default=None,
@@ -170,8 +170,14 @@ def _comprobar_uso(a: argparse.Namespace) -> str | None:
         return "--duration y --persist son excluyentes."
     if a.simulate and (a.duration or a.persist):
         return "--simulate no se combina con --duration ni --persist."
-    if a.temp is not None and a.channel != "all":
+    if a.temp is not None and a.channel not in (None, "all"):
         return "--temp no se puede usar con --channel r, g o b."
+    if a.simulate and a.monitor is not None:
+        return "--simulate no toca ninguna pantalla y no usa --monitor."
+    if a.list and (a.monitor is not None or a.channel is not None):
+        return "--list no usa --monitor ni --channel."
+    if a.reset and a.channel is not None:
+        return "--reset no usa --channel."
     if not (hay_ajuste or a.list or a.reset):
         return ("indica al menos un ajuste (--gamma, --brightness, --contrast o --temp), "
                 "--list o --reset.")
@@ -199,7 +205,7 @@ def _simular(rampa: color.Rampa) -> int:
 
 
 def _reiniciar(a: argparse.Namespace) -> int:
-    monitores = display.elegir_monitores(a.monitor or "todos", display.listar_monitores())
+    monitores = display.elegir_monitores("todos" if a.monitor is None else a.monitor, display.listar_monitores())
     display.restaurar_identidad(monitores)
     print(f"Rampa neutra aplicada {_destino(monitores)}.")
     print("Nota: --reset aplica siempre la identidad; no puede conocer una rampa "
@@ -215,7 +221,7 @@ def _esperar(segundos: float | None) -> None:
 
 
 def _aplicar(a: argparse.Namespace, rampa: color.Rampa) -> int:
-    monitores = display.elegir_monitores(a.monitor or "principal", display.listar_monitores())
+    monitores = display.elegir_monitores("principal" if a.monitor is None else a.monitor, display.listar_monitores())
     descripcion, destino = _descripcion(a), _destino(monitores)
     with display.SesionGamma(monitores) as sesion:
         for m in sesion.originales_modificados():
@@ -252,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
     problema = _comprobar_uso(a)
     if problema:
         return _error(problema, ERROR_USO)
+    a.channel = a.channel or "all"
     try:
         if a.list:
             return _listar()
