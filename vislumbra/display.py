@@ -161,3 +161,49 @@ def leer_rampa(m: Monitor) -> Rampa:
                 f"(código {ctypes.get_last_error()})."
             )
     return list(buffer)
+
+
+def _escribir(m: Monitor, r: Rampa) -> None:
+    buffer = (ctypes.c_ushort * color.LONGITUD_RAMPA)(*r)
+    with _ContextoDispositivo(m) as hdc:
+        if not _gdi32.SetDeviceGammaRamp(hdc, buffer):
+            codigo = ctypes.get_last_error()
+            detalle = f" (código de Windows {codigo})" if codigo else ""
+            raise RampaRechazada(
+                f"Windows ha rechazado la rampa en el monitor {m.numero}{detalle}. "
+                "Prueba con valores más suaves."
+            )
+
+
+def rampas_coinciden(a: Rampa, b: Rampa, tolerancia: int = TOLERANCIA_LECTURA) -> bool:
+    return len(a) == len(b) and all(abs(x - y) <= tolerancia for x, y in zip(a, b))
+
+
+def aplicar_rampa(m: Monitor, r: Rampa, *, validar: bool = True) -> bool:
+    """Aplica la rampa al monitor. Devuelve ``True`` si la lectura posterior coincide.
+
+    Antes de tocar la pantalla llama a ``color.validar_rampa`` (``RampaIlegible``).
+    Si Windows la rechaza lanza ``RampaRechazada``. Un ``False`` significa que
+    Windows la aceptó pero el controlador parece limitarla (aviso, no error).
+    """
+    if validar:
+        color.validar_rampa(r)
+    _escribir(m, r)
+    return rampas_coinciden(leer_rampa(m), r)
+
+
+def restaurar_identidad(monitores: list[Monitor]) -> None:
+    """Aplica la rampa neutra a todos los monitores indicados, aunque alguno falle.
+
+    No pasa por el validador: restaurar nunca debe bloquearse. Si alguno falla,
+    lanza ``ErrorPantalla`` al final, tras intentarlo con todos.
+    """
+    identidad = color.rampa_identidad()
+    fallos = []
+    for m in monitores:
+        try:
+            _escribir(m, identidad)
+        except ErrorPantalla as e:
+            fallos.append(f"monitor {m.numero}: {e}")
+    if fallos:
+        raise ErrorPantalla("no se pudo restaurar: " + "; ".join(fallos))
