@@ -2,6 +2,14 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-26 · test (fase 1) — parcial
+- **Verificado por ejecución:** `pytest -q` 211 en verde y 6 saltadas (marcador `pantalla`); con `--con-pantalla`, las 6 en verde. Sondeo de límites en los 3 monitores: todo lo aceptado se lee exacto (diferencia 0); **Windows rechaza temperaturas por debajo de ~3250 K** y, en general, rampas con desviación mayor de ~50 % respecto a la identidad (hipótesis confirmada con 3 predicciones). Privacidad (I-10) e I-11 comprobadas. Rampas en identidad tras cada prueba.
+- **Arreglado (con test):** I-1 (monitor tocado antes de escribir, `BaseException`), I-2 (Ctrl+C fuera de la espera, código 130), I-3 (`--duration inf`/`nan`) y la duración con decimales (I-11a).
+- **Constantes:** `TEMPERATURA_MIN` 2500 → 3300 K; `TOLERANCIA_LECTURA` 512 → 64 (diferencia medida 0). Detalle en `docs/resultados-test-fase-1.md`.
+- **Incidencias para la sesión de creación:** I-4 (el validador aplica la temperatura antes de validar), I-5 (combinaciones ignoradas en silencio), I-11b (`--monitor ""` cae al principal) e **I-12** (el validador no modela el límite del ~50 % de Windows; Windows rechaza con un mensaje genérico). `GAMMA_MAX` 4,0 está en el límite: ampliar exige la fase 5.
+- **Sin verificar (necesita al usuario):** lista visual V1–V12, pruebas de proceso P1–P8 (`--persist`, cierre de ventana, Ctrl+C real), sondeo visual, calibración de brillo, contraste y gamma, y umbrales del validador. I-8 e I-9 dependen de P3.
+- **Siguiente:** continuar la sesión de test con el usuario delante, desde la lista visual (§5 de `docs/plan-test-fase-1.md`); hay un patrón de grises generado en el scratchpad de la sesión (se vuelve a generar si hace falta).
+
 ## 2026-11-26 · planificación (test de la fase 1)
 - **Hecho:** plan de test de la fase 1 aprobado por el autor y guardado en `docs/plan-test-fase-1.md` (tests de `test_display.py` con dobles y con `--con-pantalla`, sondeo de límites, pruebas de proceso, calibración, lista visual, revisión de código, commits y riesgos). Las seis decisiones de §9 se aprobaron con la opción recomendada: arreglar I-1, I-2 e I-3 en la sesión de test; sondeo fuera de rango solo si gamma 4,0 se queda corta; resultados en `docs/resultados-test-fase-1.md`; I-4 como incidencia de diseño; `--persist` se conserva solo si la rampa sobrevive al proceso.
 - **Verificado por ejecución (sin tocar la gamma):** `pytest -q` con 186 pruebas en verde; `--list` con 3 monitores y el 2 como principal; las 3 rampas en identidad; `--simulate` de los casos citados en el plan.
