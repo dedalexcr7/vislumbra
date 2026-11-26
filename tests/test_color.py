@@ -17,7 +17,7 @@ def test_ajuste_neutro_es_valido():
 
 
 @pytest.mark.parametrize("extremo", [
-    dict(brillo=125), dict(brillo=-125), dict(contraste=82), dict(contraste=-82),
+    dict(brillo=100), dict(brillo=-100), dict(contraste=40), dict(contraste=-40),
     dict(gamma=0.5), dict(gamma=4.0), dict(temperatura=3300), dict(temperatura=10000),
 ])
 def test_los_extremos_de_cada_rango_son_validos(extremo):
@@ -26,7 +26,7 @@ def test_los_extremos_de_cada_rango_son_validos(extremo):
 
 @pytest.mark.parametrize("malo", [
     dict(gamma=7), dict(gamma=0), dict(gamma=-1), dict(gamma=0.49),
-    dict(brillo=126), dict(brillo=-125.5), dict(contraste=83), dict(contraste=-90),
+    dict(brillo=101), dict(brillo=-100.5), dict(contraste=41), dict(contraste=-90),
     dict(temperatura=2000), dict(temperatura=3299), dict(temperatura=12000),
 ])
 def test_valores_fuera_de_rango_se_rechazan(malo):
@@ -95,15 +95,16 @@ def test_contraste_aleja_o_acerca_de_los_medios_con_recorte():
 
 def test_conversiones_de_escala():
     assert color.brillo_a_desplazamiento(0) == 0
-    assert color.brillo_a_desplazamiento(125) == pytest.approx(0.5)
+    assert color.brillo_a_desplazamiento(100) == pytest.approx(100 / 375)
+    assert color.contraste_a_factor(75) == pytest.approx(2.0)
     assert color.contraste_a_factor(0) == 1
-    assert 0 < color.contraste_a_factor(-82) < 1 < color.contraste_a_factor(82)
+    assert 0 < color.contraste_a_factor(-40) < 1 < color.contraste_a_factor(40)
 
 
 GRILLA = [
     Ajuste.uniforme(brillo=b, contraste=c, gamma=g, temperatura=t)
     for b, c, g, t in itertools.product(
-        (-125, -60, 0, 60, 125), (-82, -30, 0, 5, 30, 82),
+        (-100, -60, 0, 60, 100), (-40, -20, 0, 5, 20, 40),
         (0.5, 1.0, 1.7, 2.5, 4.0), (3300, 6500, 10000),
     )
 ]
@@ -195,13 +196,16 @@ def test_validar_rampa_rechaza_longitud_y_valores_invalidos():
         color.validar_rampa(_rampa_con([0] * 255 + [70000]))
 
 
-def test_las_esquinas_del_plan_se_rechazan():
-    for b in (125, -125):
-        r = color.construir_rampa(Ajuste.uniforme(brillo=b, contraste=-82))
-        with pytest.raises(RampaIlegible):
-            color.validar_rampa(r)
+def test_las_esquinas_de_brillo_y_contraste_con_gamma_neutro_son_legibles():
+    for b in (100, -100):
+        for c in (40, -40):
+            color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=b, contraste=c)))
+
+
+def test_brillo_muy_bajo_con_gamma_bajo_se_rechaza():
+    # El centro de la rampa queda por debajo del 10 %: la pantalla sería casi ilegible.
     with pytest.raises(RampaIlegible):
-        color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=125)))
+        color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=-100, gamma=0.5)))
 
 
 def test_invariante_de_seguridad_en_la_rejilla():

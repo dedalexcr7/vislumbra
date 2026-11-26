@@ -200,7 +200,7 @@ def test_valor_fuera_de_rango_usa_el_nombre_de_la_opcion(capsys):
 
 
 def test_ajuste_ilegible_se_rechaza_sin_aplicar(capsys):
-    codigo, _, err = ejecutar(capsys, "--brightness", "125", "--contrast", "-82")
+    codigo, _, err = ejecutar(capsys, "--brightness", "-100", "--gamma", "0.5")
     assert codigo == 1
     assert "dejaría la pantalla casi ilegible" in err and "No se ha aplicado nada." in err
     assert SesionFalsa.creadas == []

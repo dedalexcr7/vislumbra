@@ -298,8 +298,8 @@ def _escalera():
     uniforme = color.Ajuste.uniforme
     n = color.TEMPERATURA_NEUTRA
     ajustes = [(f"gamma {g}", uniforme(0, 0, g, n)) for g in (1.5, 2.0, 2.5, 3.0, 3.5, 4.0)]
-    ajustes += [(f"brillo {b:+d}", uniforme(b, 0, 1.0, n)) for b in (25, 50, 75, -25, -50, -60)]
-    ajustes += [(f"contraste {c:+d}", uniforme(0, c, 1.0, n)) for c in (20, 40, 82, -20, -40)]
+    ajustes += [(f"brillo {b:+d}", uniforme(b, 0, 1.0, n)) for b in (25, 50, 100, -25, -50, -100)]
+    ajustes += [(f"contraste {c:+d}", uniforme(0, c, 1.0, n)) for c in (10, 20, 40, -20, -40)]
     ajustes += [(f"temp {t}", uniforme(0, 0, 1.0, t)) for t in (5000, 4000, 3500, 3000, 2500, 8000, 10000)]
     ajustes += [("0/5/1,7", uniforme(0, 5, 1.7, n)), ("0/5/2,5", uniforme(0, 5, 2.5, n))]
     return ajustes

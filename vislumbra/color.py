@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from typing import Sequence
 
 # --- Rangos de usuario y escala (provisionales) -----------------------------
-BRILLO_MIN, BRILLO_MAX = -125.0, 125.0
-CONTRASTE_MIN, CONTRASTE_MAX = -82.0, 82.0
+BRILLO_MIN, BRILLO_MAX = -100.0, 100.0
+CONTRASTE_MIN, CONTRASTE_MAX = -40.0, 40.0
 GAMMA_MIN, GAMMA_MAX = 0.5, 4.0
 TEMPERATURA_MIN, TEMPERATURA_MAX = 3300.0, 10000.0  # Windows rechaza por debajo de ~3250 K
 TEMPERATURA_NEUTRA = 6500.0
@@ -24,8 +24,8 @@ TEMPERATURA_NEUTRA = 6500.0
 RANGO_SALIDA_MIN = 0.25  # ramp[255] - ramp[0] al menos el 25 % de 65535
 CENTRO_MIN, CENTRO_MAX = 0.10, 0.90  # ramp[128] entre el 10 % y el 90 %
 
-BRILLO_POR_UNIDAD = 1.0 / 250.0  # brillo ±125 -> desplazamiento ±0,5
-CONTRASTE_ESCALA = 50.0  # factor de contraste = 2 ** (contraste / 50)
+BRILLO_POR_UNIDAD = 1.0 / 375.0  # brillo ±100 -> desplazamiento ±0,27 (calibrado: se nota desde 2)
+CONTRASTE_ESCALA = 75.0  # factor de contraste = 2 ** (contraste / 75) (calibrado: se nota desde 2)
 
 # --- Tamaños de la rampa de Windows ------------------------------------------
 PUNTOS = 256
