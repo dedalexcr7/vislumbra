@@ -2,12 +2,13 @@
 """Orden de terminal: ``python -m vislumbra``.
 
 Códigos de salida: 0 correcto; 1 valor inválido o rampa ilegible; 2 uso
-incorrecto; 3 error de Windows o de monitor.
+incorrecto; 3 error de Windows o de monitor; 130 Ctrl+C fuera de la espera.
 """
 
 from __future__ import annotations
 
 import argparse
+import math
 import re
 import sys
 import time
@@ -15,6 +16,7 @@ import time
 from . import __version__, color, display
 
 OK, ERROR_VALOR, ERROR_USO, ERROR_PANTALLA = 0, 1, 2, 3
+INTERRUMPIDO = 130  # Ctrl+C fuera de la espera
 
 _OPCION_POR_NOMBRE = {
     "brillo": "--brightness",
@@ -56,8 +58,8 @@ def _decimal(texto: str) -> float:
 
 def _segundos(texto: str) -> float:
     valor = _decimal(texto)
-    if not valor > 0:
-        raise argparse.ArgumentTypeError("la duración debe ser mayor que 0.")
+    if not (valor > 0 and math.isfinite(valor)):
+        raise argparse.ArgumentTypeError("la duración debe ser un número finito mayor que 0.")
     return valor
 
 
@@ -265,6 +267,9 @@ def main(argv: list[str] | None = None) -> int:
         return _error(_con_opcion(str(e)), ERROR_VALOR)
     except display.ErrorPantalla as e:
         return _error(str(e), ERROR_PANTALLA)
+    except KeyboardInterrupt:  # Ctrl+C fuera de la espera; la sesión ya restauró al salir
+        print("Interrumpido. Pantalla restaurada.", file=sys.stderr)
+        return INTERRUMPIDO
 
 
 if __name__ == "__main__":

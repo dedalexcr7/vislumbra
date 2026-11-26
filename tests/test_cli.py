@@ -135,6 +135,14 @@ def test_ctrl_c_restaura_y_termina_bien(capsys, monkeypatch):
     assert "Pantalla restaurada." in out
 
 
+def test_ctrl_c_durante_la_aplicacion_da_mensaje_en_español_y_codigo_130(capsys):
+    SesionFalsa.fallo = KeyboardInterrupt()  # llega dentro de sesion.aplicar, fuera de _esperar
+    codigo, out, err = ejecutar(capsys, "--gamma", "1.2")
+    assert codigo == 130
+    assert "Interrumpido. Pantalla restaurada." in err
+    assert "Traceback" not in err and SesionFalsa.creadas[0].cerrada
+
+
 def test_avisos_de_lectura_y_de_rampa_original_modificada(capsys):
     SesionFalsa.sin_coincidir = [MONITORES[1]]
     SesionFalsa.modificados = [MONITORES[0]]
@@ -211,6 +219,8 @@ def test_nan_se_rechaza(capsys):
     (["--gamma", "abc"], "«abc» no es un número"),
     (["--gamma", "1.2", "--channel", "x"], "no es un canal válido"),
     (["--gamma", "1.2", "--duration", "0"], "mayor que 0"),
+    (["--gamma", "1.2", "--duration", "inf"], "número finito"),
+    (["--gamma", "1.2", "--duration", "nan"], "número finito"),
     (["--gamma", "1.2", "--rara"], "argumentos no reconocidos"),
     (["--gam", "1.2"], "argumentos no reconocidos"),
 ])
