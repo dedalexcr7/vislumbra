@@ -167,7 +167,7 @@ def test_validar_rampa_acepta_la_identidad():
 
 def test_validar_rampa_rechaza_rampas_planas_e_invertidas():
     with pytest.raises(RampaIlegible, match="rango de salida"):
-        color.validar_rampa(_rampa_con([30000] * 256))
+        color.validar_legibilidad(_rampa_con([30000] * 256))
     with pytest.raises(RampaIlegible, match="no monótono"):
         color.validar_rampa(_rampa_con(IDENTIDAD[::-1]))
 
@@ -182,11 +182,11 @@ def test_validar_rampa_rechaza_no_monotona():
 def test_validar_rampa_rechaza_demasiado_oscura_o_clara():
     oscura = [round(i / 255 * 0.2 * 65535) for i in range(256)]
     with pytest.raises(RampaIlegible, match="rango de salida"):
-        color.validar_rampa(_rampa_con(oscura))
+        color.validar_legibilidad(_rampa_con(oscura))
     # Rango completo, pero casi todo blanco: el valor central queda fuera de margen.
     clara = [0] + [64000] * 255
     with pytest.raises(RampaIlegible, match="valor central"):
-        color.validar_rampa(_rampa_con(clara))
+        color.validar_legibilidad(_rampa_con(clara))
 
 
 def test_validar_rampa_rechaza_longitud_y_valores_invalidos():
@@ -199,22 +199,21 @@ def test_validar_rampa_rechaza_longitud_y_valores_invalidos():
 def test_las_esquinas_de_brillo_y_contraste_con_gamma_neutro_son_legibles():
     for b in (100, -100):
         for c in (40, -40):
-            color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=b, contraste=c)))
+            color.construir_rampa_segura(Ajuste.uniforme(brillo=b, contraste=c))
 
 
 def test_brillo_muy_bajo_con_gamma_bajo_se_rechaza():
     # El centro de la rampa queda por debajo del 10 %: la pantalla sería casi ilegible.
     with pytest.raises(RampaIlegible):
-        color.validar_rampa(color.construir_rampa(Ajuste.uniforme(brillo=-100, gamma=0.5)))
+        color.construir_rampa_segura(Ajuste.uniforme(brillo=-100, gamma=0.5))
 
 
 def test_invariante_de_seguridad_en_la_rejilla():
     """Toda combinación o valida o lanza RampaIlegible; lo que pasa es monótono y de rango amplio."""
     validas = 0
     for a in GRILLA:
-        r = color.construir_rampa(a)
         try:
-            color.validar_rampa(r)
+            r = color.construir_rampa_segura(a)
         except RampaIlegible:
             continue
         validas += 1
@@ -230,7 +229,7 @@ def test_invariante_de_seguridad_en_la_rejilla():
     Ajuste.uniforme(contraste=5, gamma=2.5),
 ])
 def test_neutro_y_valores_de_referencia_validan(ajuste):
-    color.validar_rampa(color.construir_rampa(ajuste))
+    color.construir_rampa_segura(ajuste)
 
 
 # --- Límite de desviación de Windows (I-12) ---------------------------------------
@@ -250,7 +249,7 @@ def test_desviacion_mide_la_mayor_distancia():
 ])
 def test_i12_se_rechaza_lo_que_windows_rechazaria(ajuste):
     with pytest.raises(RampaIlegible, match="supera lo que Windows permite"):
-        color.validar_rampa(color.construir_rampa(ajuste))
+        color.construir_rampa_segura(ajuste)
 
 
 @pytest.mark.parametrize("ajuste", [
@@ -263,3 +262,23 @@ def test_i12_siguen_siendo_validos(ajuste):
     r = color.construir_rampa(ajuste)
     assert color.desviacion(r) <= color.DESVIACION_MAX
     color.validar_rampa(r)
+
+
+# --- Legibilidad sin el tinte (I-4) ---------------------------------------------------
+def test_validar_legibilidad_acepta_la_identidad():
+    color.validar_legibilidad(color.rampa_identidad())
+
+
+def test_i4_la_legibilidad_se_juzga_sin_el_tinte():
+    """3300 K baja el azul al 40 %: sin tinte se ve bien, y el tinte solo cuenta para Windows."""
+    a = Ajuste.uniforme(temperatura=3300)
+    color.validar_legibilidad(color.construir_rampa(Ajuste.uniforme()))
+    color.construir_rampa_segura(a)  # no lanza
+
+
+def test_i4_el_rechazo_dice_la_causa_real():
+    """Con 3300 K y brillo −45 la causa es el límite de Windows, no la legibilidad."""
+    with pytest.raises(RampaIlegible, match="supera lo que Windows permite"):
+        color.construir_rampa_segura(Ajuste.uniforme(temperatura=3300, brillo=-45))
+    with pytest.raises(RampaIlegible, match="casi ilegible"):
+        color.construir_rampa_segura(Ajuste.uniforme(brillo=-100, gamma=0.5))

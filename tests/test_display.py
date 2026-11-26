@@ -313,9 +313,8 @@ def test_sondeo_limites(monitores_reales, rampas_guardadas):
     for m in monitores_reales:
         original = rampas_guardadas[m.numero]
         for nombre, ajuste in _escalera():
-            rampa = color.construir_rampa(ajuste)
             try:
-                color.validar_rampa(rampa)
+                rampa = color.construir_rampa_segura(ajuste)
             except color.RampaIlegible as e:
                 filas.append((nombre, m.numero, "rechazada por el validador", "—", str(e)[:60]))
                 continue

@@ -10,7 +10,7 @@ Las constantes de escala son **provisionales**: se calibran probando en pantalla
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Sequence
 
 # --- Rangos de usuario y escala (provisionales) -----------------------------
@@ -186,25 +186,16 @@ def desviacion(r: Sequence[int]) -> int:
     return max(abs(x - y) for x, y in zip(r, rampa_identidad()))
 
 
-def validar_rampa(r: Sequence[int]) -> None:
-    """Lanza ``RampaIlegible`` si la rampa no es segura de aplicar.
+def validar_legibilidad(r: Sequence[int]) -> None:
+    """Lanza ``RampaIlegible`` si la rampa dejaría la pantalla casi ilegible.
 
-    Comprueba: 768 enteros de 16 bits, desviación máxima de la identidad (límite de
-    Windows) y, en cada canal, monotonía no decreciente, rango de salida suficiente
-    y valor central dentro de unos márgenes.
+    Se aplica a la rampa **sin el tinte de la temperatura** (I-4): un tinte cálido
+    baja el rango del canal azul sin que la imagen deje de verse bien. Comprueba,
+    en cada canal, el rango de salida y que el valor central quede en unos márgenes.
     """
-    if len(r) != LONGITUD_RAMPA:
-        raise RampaIlegible(f"la rampa debe tener {LONGITUD_RAMPA} valores y tiene {len(r)}.")
+    _comprobar_formato(r)
     for n, letra in enumerate("RGB"):
         canal = r[n * PUNTOS:(n + 1) * PUNTOS]
-        if not all(isinstance(x, int) and 0 <= x <= MAXIMO for x in canal):
-            raise RampaIlegible(f"la rampa del canal {letra} tiene valores no válidos.")
-    for n, letra in enumerate("RGB"):
-        canal = r[n * PUNTOS:(n + 1) * PUNTOS]
-        if any(x > y for x, y in zip(canal, canal[1:])):
-            raise RampaIlegible(
-                f"este ajuste dejaría la pantalla casi ilegible (canal {letra} no monótono)."
-            )
         rango = (canal[-1] - canal[0]) / MAXIMO
         if rango < RANGO_SALIDA_MIN:
             raise RampaIlegible(
@@ -217,9 +208,45 @@ def validar_rampa(r: Sequence[int]) -> None:
                 "este ajuste dejaría la pantalla casi ilegible "
                 f"(valor central fuera del {CENTRO_MIN:.0%}–{CENTRO_MAX:.0%} en el canal {letra})."
             )
+
+
+def _comprobar_formato(r: Sequence[int]) -> None:
+    if len(r) != LONGITUD_RAMPA:
+        raise RampaIlegible(f"la rampa debe tener {LONGITUD_RAMPA} valores y tiene {len(r)}.")
+    for n, letra in enumerate("RGB"):
+        canal = r[n * PUNTOS:(n + 1) * PUNTOS]
+        if not all(isinstance(x, int) and 0 <= x <= MAXIMO for x in canal):
+            raise RampaIlegible(f"la rampa del canal {letra} tiene valores no válidos.")
+
+
+def validar_rampa(r: Sequence[int]) -> None:
+    """Lanza ``RampaIlegible`` si la rampa **final** no es segura de aplicar.
+
+    Comprueba el formato (768 enteros de 16 bits), la monotonía de cada canal y el
+    límite de desviación de Windows. La legibilidad se juzga aparte, sobre la rampa
+    sin tinte (``validar_legibilidad``); ``construir_rampa_segura`` hace las dos cosas.
+    """
+    _comprobar_formato(r)
+    for n, letra in enumerate("RGB"):
+        canal = r[n * PUNTOS:(n + 1) * PUNTOS]
+        if any(x > y for x, y in zip(canal, canal[1:])):
+            raise RampaIlegible(
+                f"este ajuste dejaría la pantalla casi ilegible (canal {letra} no monótono)."
+            )
     d = desviacion(r)
     if d > DESVIACION_MAX:
         raise RampaIlegible(
             "este ajuste supera lo que Windows permite: la rampa se aleja demasiado de la "
             f"neutra (desviación {d} de un máximo de {DESVIACION_MAX})."
         )
+
+
+def construir_rampa_segura(a: Ajuste) -> Rampa:
+    """Valida el ajuste y devuelve la rampa final, o lanza un error en español.
+
+    Legibilidad sobre la rampa sin tinte; monotonía y límite de Windows sobre la final.
+    """
+    final = construir_rampa(a)
+    validar_legibilidad(construir_rampa(replace(a, temperatura=TEMPERATURA_NEUTRA)))
+    validar_rampa(final)
+    return final

@@ -257,8 +257,7 @@ def main(argv: list[str] | None = None) -> int:
             return _listar()
         if a.reset:
             return _reiniciar(a)
-        rampa = color.construir_rampa(_construir_ajuste(a))
-        color.validar_rampa(rampa)
+        rampa = color.construir_rampa_segura(_construir_ajuste(a))
         if a.simulate:
             return _simular(rampa)
         return _aplicar(a, rampa)
