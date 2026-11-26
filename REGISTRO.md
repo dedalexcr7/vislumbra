@@ -5,10 +5,8 @@ Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesi
 ## 2026-11-26 · creación (fase 0)
 - **Hecho:** `git init` (rama `main`), `.gitignore`, `requirements.txt` (`pystray`, `keyboard`, `Pillow`), `LICENSE` (texto oficial de GPL v3, descargado de gnu.org), `README.md` básico y primer commit. Autoría local con el correo `noreply` de GitHub, para no dejar correos personales en el historial.
 - **Licencias comprobadas** (en un entorno temporal, con `pip show` y los metadatos): `pystray` LGPLv3, `keyboard` MIT, `six` MIT, `Pillow` MIT-CMU. Todas compatibles con GPL v3.
-- **Pendiente de la fase 0:**
-  1. Renombrar la carpeta `App para pantalla` a `vislumbra` (no se pudo con la sesión abierta; Windows bloquea la carpeta). Hacerlo con la sesión cerrada.
-  2. Crear el `.venv` **después** del renombrado (guarda rutas absolutas) e instalar `requirements.txt`.
-  3. Crear el repositorio privado `dedalexcr7/vislumbra` y hacer el primer `push`: **requiere OK del usuario**.
+- **Carpeta:** el usuario la movió a `D:\Claude\Proyectos\Vislumbra` (con la sesión cerrada, porque Windows la bloquea). Después se creó el `.venv` y se instaló `requirements.txt` (`pystray` 0.19.5, `keyboard` 0.13.5, `Pillow` 12.3.0; instalación sin errores).
+- **Pendiente de la fase 0:** crear el repositorio privado `dedalexcr7/vislumbra` y hacer el primer `push`: **requiere OK del usuario**.
 - **Decisiones:** el aviso de copyright («Copyright 2026 …») sigue pendiente. El usuario decide qué fases se hacen en cada sesión (puede haber más de una).
 - **A probar:** que `pip install -r requirements.txt` funcione en el `.venv` definitivo.
 

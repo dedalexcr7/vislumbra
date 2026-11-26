@@ -1,4 +1,4 @@
-# Vislumbra (carpeta de trabajo: App para pantalla)
+# Vislumbra
 
 App **gratuita** y sencilla para Windows: sustituto moderno de la pestaña de corrección de color de RivaTuner v2.24c. Brillo, contraste y gamma (por canal R/G/B) y temperatura de color desde un icono en la bandeja, con control fino y modo preciso, perfiles y atajos globales. Los perfiles los crea cada usuario; no se atan a ningún juego ni persona.
 
