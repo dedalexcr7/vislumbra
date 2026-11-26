@@ -2,6 +2,12 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-26 · planificación (test de la fase 1)
+- **Hecho:** plan de test de la fase 1 aprobado por el autor y guardado en `docs/plan-test-fase-1.md` (tests de `test_display.py` con dobles y con `--con-pantalla`, sondeo de límites, pruebas de proceso, calibración, lista visual, revisión de código, commits y riesgos). Las seis decisiones de §9 se aprobaron con la opción recomendada: arreglar I-1, I-2 e I-3 en la sesión de test; sondeo fuera de rango solo si gamma 4,0 se queda corta; resultados en `docs/resultados-test-fase-1.md`; I-4 como incidencia de diseño; `--persist` se conserva solo si la rampa sobrevive al proceso.
+- **Verificado por ejecución (sin tocar la gamma):** `pytest -q` con 186 pruebas en verde; `--list` con 3 monitores y el 2 como principal; las 3 rampas en identidad; `--simulate` de los casos citados en el plan.
+- **Hallazgos por lectura, no ejecutados:** I-1 (`SesionGamma.aplicar` puede dejar un monitor modificado sin restaurar si falla la lectura posterior o llega un Ctrl+C) e I-4 (el validador rechaza combinaciones cálidas razonables; esto sí se comprobó con `--simulate`). Ver §6 del plan.
+- **Siguiente:** sesión de test de la fase 1, siguiendo `docs/plan-test-fase-1.md`.
+
 ## 2026-11-26 · creación (fase 1)
 - **Hecho** (siguiendo `docs/plan-fase-1.md`): `requirements-dev.txt` y `pytest.ini` (`pytest` 9.2.0, MIT), `vislumbra/color.py`, `vislumbra/display.py`, `vislumbra/__main__.py`, `tests/test_color.py`, `tests/test_cli.py`, `tests/conftest.py` (opción `--con-pantalla`) y la sección de uso del `README.md`. Se actualizó `PLAN.md` (el cálculo de canales está en `color.py`).
 - **Desviaciones del plan:** los commits 9 y 10 se fusionaron en uno (la orden no tiene sentido a medias). Se añadió `SesionGamma.conservar()` para `--persist` y `tests/conftest.py` para registrar `--con-pantalla`. Aviso de privacidad: los nombres de monitor salen por pantalla pero no se guardan en ningún archivo.
