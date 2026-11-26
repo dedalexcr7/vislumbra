@@ -63,7 +63,7 @@ La búsqueda web muestra herramientas parecidas: **GammaBoost+** (Steam, para Wi
   5. limitar a [0, 1] y escalar a 16 bits
 - **Brillo por hardware** (opcional, fase aparte): `screen_brightness_control` (WMI en portátiles, DDC/CI en monitores externos). Es independiente del brillo por software de la rampa.
 - **Atajos globales:** librería `keyboard`. **Bandeja:** `pystray`. **Panel:** `tkinter` (sin dependencias pesadas).
-- **Persistencia:** `%APPDATA%\vislumbra\perfiles.json` (nunca dentro del repositorio).
+- **Persistencia:** `%APPDATA%\Vislumbra\config.json` (perfiles, perfil activo y asignación por monitor; nunca dentro del repositorio).
 - **Seguridad:** guardar la rampa original al arrancar y restaurarla al salir (`atexit`); opción «Restablecer» en la bandeja; atajo de emergencia (propuesta: `Ctrl+Alt+0`); rangos limitados; confirmación con reversión automática a los 10 s para valores extremos; reaplicar la rampa cada pocos segundos por si un juego la reinicia.
 
 ## Estructura de archivos prevista
@@ -79,11 +79,18 @@ vislumbra/
 │  ├─ __main__.py     arranque y --reset
 │  ├─ display.py      E/S con Windows: monitores, leer/aplicar/restaurar la rampa, sesión
 │  ├─ color.py        funciones puras: cálculo de canales, Kelvin → RGB, validación de la rampa
-│  ├─ panel.py        panel emergente
-│  ├─ tray.py         icono de bandeja
-│  ├─ profiles.py     perfiles en JSON
-│  ├─ hotkeys.py      atajos globales
+│  ├─ escala.py       (fase 2) posición del deslizador ↔ valor, pasos y formato
+│  ├─ perfiles.py     (fase 2) perfiles, perfil activo y asignación por monitor en JSON
+│  ├─ estado.py       (fase 2) modelo del panel, sin Tk
+│  ├─ aplicador.py    (fase 2) hilo que aplica y vigila la rampa
+│  ├─ sistema.py      (fase 2) instancia única, eventos con nombre y DPI
+│  ├─ panel.py        (fase 2) panel emergente
+│  ├─ tray.py         (fase 2) icono de bandeja
+│  ├─ app.py          (fase 2) arranque y cierre de la app
+│  ├─ hotkeys.py      (fase 3) atajos globales
 │  └─ watcher.py      perfil automático por proceso (fase 4)
+├─ assets/            (fase 2) logo e iconos
+├─ herramientas/      (fase 2) generar_iconos.py
 └─ tests/             pytest sobre las funciones puras y lectura/escritura de rampa
 ```
 
@@ -92,8 +99,15 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 
 - **Fase 0 – Preparación:** entorno virtual, `requirements.txt`, `.gitignore`, `git init`, repositorio **privado** en GitHub (con OK del usuario antes del primer `push`), `README.md` básico.
 - **Fase 1 – Núcleo:** `color.py` y `display.py`: aplicar, leer y restaurar la rampa, con una orden de terminal para probarla (`python -m vislumbra --gamma 1.4`, `--reset`). Sin interfaz todavía.
-- **Fase 2 – Panel y bandeja:** sliders por canal con opción «vincular canales», brillo, contraste, gamma, temperatura, botón de restablecer y botón A/B para comparar con la pantalla normal.
-- **Fase 3 – Perfiles y atajos:** perfiles creados por el usuario (crear, renombrar, duplicar, borrar; solo «Normal» viene incluido); atajos globales por perfil, para A/B, para el modo preciso y para el reinicio de emergencia.
+- **Fase 2 – Panel, bandeja y perfiles** (plan aprobado: `docs/plan-fase-2.md`):
+  - Panel con sliders por canal y opción «vincular canales»: brillo, contraste, gamma y temperatura. Incluye control fino y modo preciso, gráfico de la curva, restablecer y A/B.
+  - Perfiles creados por el usuario: crear, guardar, guardar como, renombrar y borrar. Solo «Normal» viene incluido.
+  - **Cada monitor sigue al perfil activo o tiene un perfil fijo**; por ejemplo, un monitor de código con su propio ajuste que no cambia al cambiar el perfil activo.
+  - Cambio de perfil desde el panel, desde la bandeja y con `--perfil`.
+  - Vigilancia que vuelve a aplicar la rampa si algo la reinicia, e instancia única.
+- **Fase 3 – Atajos y más perfiles:**
+  - Atajos globales: siguiente perfil, uno por perfil, A/B, modo preciso y reinicio de emergencia.
+  - Duplicar, reordenar, importar y exportar perfiles.
 - **Fase 4 – Perfil por juego (opcional):** el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
 - **Fase 6 – Empaquetado (opcional):** `.exe` con PyInstaller y arranque con Windows.
@@ -119,6 +133,6 @@ Descartados: «Nictalope» (válido, pero no elegido), «Candil» (187 repos) y 
 
 ## Pendiente de decidir
 - Nombre para el aviso de copyright del `LICENSE` (ver arriba).
-- **Logo:** el usuario aportó un icono (PNG 1254×1254, en la raíz, sin versionar). Para la bandeja (fase 2) hace falta una versión transparente y legible a 16–48 px, y un `.ico`. Decidir dónde guardarlo (`assets/`) y su licencia.
+- **Logo:** el usuario aportó un icono hecho con ChatGPT (PNG 1254×1254, en la raíz, sin versionar). En la fase 2 se guarda en `assets/` y los iconos de la bandeja (solo el glifo, transparente) se generan por script. **Pendiente antes de hacer público el repositorio:** revisar los términos vigentes de OpenAI sobre la propiedad de lo generado y anotarlo en el README.
 - Cuándo hacer público el repositorio: lo decide el autor; hasta entonces permanece **privado**.
 - ~~Cuenta de GitHub~~ → resuelto: `github.com/dedalexcr7` (verificada, existe). Repositorio previsto: `dedalexcr7/vislumbra`, libre el 2026-11-26. Se crea **privado**, con OK del usuario antes del primer `push`.

@@ -2,6 +2,21 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-26 · planificación (fase 2)
+- **Hecho:** plan de la fase 2 aprobado por el autor y guardado en `docs/plan-fase-2.md` (panel, bandeja y perfiles). Antes se publicó una **maqueta interactiva** del panel, privada en claude.ai, que solo simula y no toca la pantalla; al autor le encantó la interfaz.
+- **Decisiones del autor:**
+  - La base de los perfiles se adelanta a la fase 2: crear, guardar, guardar como, renombrar y borrar, en `%APPDATA%\Vislumbra\config.json`.
+  - Cada monitor **sigue al perfil activo o tiene un perfil fijo**; por ejemplo, un monitor de código con brillo más bajo que no cambia al cambiar de perfil.
+  - El perfil se cambia desde el panel (‹ ›), desde la bandeja y con `--perfil NOMBRE|siguiente`.
+  - Los atajos globales pasan a la fase 3.
+  - Las siete decisiones restantes de §11 se aprobaron con la opción recomendada.
+  - `PLAN.md` se ha actualizado: fases 2 y 3, archivos, persistencia y logo.
+- **Hallazgo (cálculo con los datos del test):** el límite de Windows encaja con «ningún valor a más de 32 768 de la identidad»: 3250 K da 32 450 y se aceptó; 3200 K da 33 266 y se rechazó. El validador actual deja pasar combinaciones que Windows rechazaría. Por eso la fase 2 empieza arreglando I-12 e I-4.
+- **Verificado por ejecución, sin tocar la gamma:** `pytest -q` con 212 en verde y 6 saltadas; Tk 8.6.12 disponible; `construir_rampa` tarda 0,56 ms y `leer_rampa` de 0,6 a 0,9 ms por monitor. **Verificado por lectura:** `pystray` 0.19.5 lleva su propio hilo en Windows.
+- **Logo:** hecho con ChatGPT y el producto no se venderá. Antes de hacer público el repositorio hay que revisar los términos de OpenAI.
+- **Sin verificar:** tiempo de escritura de la rampa; que el identificador de cada monitor sea estable; P8 (juego en modo sin bordes; el autor no llegó a probarlo); legibilidad del icono a 16 px.
+- **Siguiente:** sesión de creación de la fase 2, siguiendo `docs/plan-fase-2.md`.
+
 ## 2026-11-26 · test (fase 1)
 - **Verificado por ejecución:** `pytest -q` 212 en verde y 6 saltadas (marcador `pantalla`); con `--con-pantalla`, las 6 en verde. Sondeo de límites en los 3 monitores: todo lo aceptado se lee exacto (diferencia 0); **Windows rechaza temperaturas por debajo de ~3250 K** y, en general, rampas con desviación mayor de ~50 % respecto a la identidad (hipótesis confirmada con 3 predicciones). Privacidad (I-10) e I-11 comprobadas. Rampas en identidad tras cada prueba.
 - **Arreglado (con test):** I-1 (monitor tocado antes de escribir, `BaseException`), I-2 (Ctrl+C fuera de la espera, código 130), I-3 (`--duration inf`/`nan`) y la duración con decimales (I-11a).
