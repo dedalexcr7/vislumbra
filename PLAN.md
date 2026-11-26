@@ -109,6 +109,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 - Licencia GPL v3 elegida: comprobar que todas las dependencias (`pystray`, `keyboard`, `screen_brightness_control`, etc.) son compatibles con GPL v3 y dejar constancia de ello.
 - Decidir con el autor qué nombre va en el aviso de copyright («Copyright 2026 …»): nombre real o solo el usuario de GitHub.
 - Revisar que el README no afirme nada sin verificar (compatibilidad con anticheats, por ejemplo).
+- Confirmar la autoría y la licencia del logo (ver «Logo» en «Pendiente de decidir»).
 
 ## Nombre
 **Vislumbra** (confirmado por el autor; de «vislumbrar»: ver algo con poca claridad). Paquete y carpeta: `vislumbra`.
@@ -118,5 +119,6 @@ Descartados: «Nictalope» (válido, pero no elegido), «Candil» (187 repos) y 
 
 ## Pendiente de decidir
 - Nombre para el aviso de copyright del `LICENSE` (ver arriba).
+- **Logo:** el usuario aportó un icono (PNG 1254×1254, en la raíz, sin versionar). Para la bandeja (fase 2) hace falta una versión transparente y legible a 16–48 px, y un `.ico`. Decidir dónde guardarlo (`assets/`) y su licencia.
 - Cuándo hacer público el repositorio: lo decide el autor; hasta entonces permanece **privado**.
 - ~~Cuenta de GitHub~~ → resuelto: `github.com/dedalexcr7` (verificada, existe). Repositorio previsto: `dedalexcr7/vislumbra`, libre el 2026-11-26. Se crea **privado**, con OK del usuario antes del primer `push`.
