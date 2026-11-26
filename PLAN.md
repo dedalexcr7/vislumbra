@@ -77,8 +77,8 @@ vislumbra/
 ├─ .gitignore         .venv/, __pycache__/, config local
 ├─ vislumbra/
 │  ├─ __main__.py     arranque y --reset
-│  ├─ display.py      rampa gamma, monitores, cálculo de canales
-│  ├─ color.py        Kelvin → RGB y funciones puras del cálculo
+│  ├─ display.py      E/S con Windows: monitores, leer/aplicar/restaurar la rampa, sesión
+│  ├─ color.py        funciones puras: cálculo de canales, Kelvin → RGB, validación de la rampa
 │  ├─ panel.py        panel emergente
 │  ├─ tray.py         icono de bandeja
 │  ├─ profiles.py     perfiles en JSON

@@ -2,6 +2,15 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-26 · creación (fase 1)
+- **Hecho** (siguiendo `docs/plan-fase-1.md`): `requirements-dev.txt` y `pytest.ini` (`pytest` 9.2.0, MIT), `vislumbra/color.py`, `vislumbra/display.py`, `vislumbra/__main__.py`, `tests/test_color.py`, `tests/test_cli.py`, `tests/conftest.py` (opción `--con-pantalla`) y la sección de uso del `README.md`. Se actualizó `PLAN.md` (el cálculo de canales está en `color.py`).
+- **Desviaciones del plan:** los commits 9 y 10 se fusionaron en uno (la orden no tiene sentido a medias). Se añadió `SesionGamma.conservar()` para `--persist` y `tests/conftest.py` para registrar `--con-pantalla`. Aviso de privacidad: los nombres de monitor salen por pantalla pero no se guardan en ningún archivo.
+- **Verificado por ejecución:** `pytest` 186 pruebas en verde (no tocan la pantalla); `--list` (3 monitores, principal marcado); `--simulate --gamma 1.4`; rechazo de `--brightness 125 --contrast -82` (código 1); uso sin argumentos (código 2); `git grep` de rutas personales y correos sin resultados. **Cambio real:** `--gamma 1.2 --duration 5` en el monitor principal terminó con código 0, sin aviso de lectura no coincidente, y la lectura posterior de los 3 monitores era la identidad; luego `--reset` en los 3. Pantallas restauradas.
+- **Verificado por lectura:** la lógica de `SesionGamma` (restauración al cerrar, señales, `SetConsoleCtrlHandler`) y la reversión parcial con varios monitores; **no se ha probado en ejecución** (ni con `--monitor todos`, ni cerrando la ventana, ni `Ctrl+C`).
+- **Solo lo puede juzgar el usuario mirando:** si el cambio de gamma 1,2 se vio y volvió solo a la normal (pendiente de su confirmación) y la lista visual de `docs/plan-fase-1.md` §7.
+- **A probar en la sesión de test:** `tests/test_display.py` (lectura segura y escritura con `--con-pantalla`), sondeo de límites que Windows rechaza o el controlador limita, persistencia de la rampa tras terminar el proceso (decide si se conserva `--persist`), cierre de la ventana con el ajuste aplicado, `--monitor 2` y `todos` en la configuración híbrida, calibración de la escala y de los umbrales del validador y de `TOLERANCIA_LECTURA`.
+- **Siguiente:** sesión de test de la fase 1 (o fase 2: panel y bandeja, con plan previo).
+
 ## 2026-11-26 · planificación (fase 1)
 - **Hecho:** plan de la fase 1 aprobado por el autor y guardado en `docs/plan-fase-1.md` (archivos, fórmula y escala, rampa de Windows, orden de terminal, tests, comprobación mínima, riesgos y commits). Las seis decisiones se aprobaron con la opción recomendada.
 - **Verificado en solo lectura:** la enumeración de monitores y la lectura de la rampa funcionan desde `ctypes` (3 monitores activos en 2 GPU, rampas en identidad). No se modificó la pantalla ni ningún archivo de código.
