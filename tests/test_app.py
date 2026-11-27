@@ -436,3 +436,16 @@ def test_ocultar_el_panel_avisa_solo_la_primera_vez(entorno):
     a.panel.mostrar()
     a.ocultar_panel()
     assert avisos == ["Vislumbra sigue en marcha"] and not a.panel.visible
+
+
+def test_si_falla_la_restauracion_el_cierre_libera_igualmente_todo(entorno, capsys):
+    a = entorno.nueva()
+    a.iniciar()
+
+    def falla():
+        raise RuntimeError("no se puede")
+
+    entorno.sesion.cerrar = falla
+    a._parar_todo()
+    assert not a.aplicador.vivo and not app_mod.hay_app_abierta(entorno.prefijo)
+    assert "no se pudo restaurar la pantalla" in capsys.readouterr().err

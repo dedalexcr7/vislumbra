@@ -1,6 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Orden de terminal: ``python -m vislumbra``.
 
+Sin argumentos abre la app (icono en la bandeja y panel). Con argumentos, aplica un ajuste
+desde la terminal, cambia de perfil o restablece la pantalla.
+
 Códigos de salida: 0 correcto; 1 valor inválido o rampa ilegible; 2 uso
 incorrecto; 3 error de Windows o de monitor; 130 Ctrl+C fuera de la espera.
 """
@@ -13,10 +16,11 @@ import re
 import sys
 import time
 
-from . import __version__, color, display
+from . import __version__, color, display, perfiles
 
 OK, ERROR_VALOR, ERROR_USO, ERROR_PANTALLA = 0, 1, 2, 3
 INTERRUMPIDO = 130  # Ctrl+C fuera de la espera
+_dormir = time.sleep  # se sustituye en las pruebas
 
 _OPCION_POR_NOMBRE = {
     "brillo": "--brightness",
@@ -73,7 +77,8 @@ def _canal(texto: str) -> str:
 def _crear_parser() -> argparse.ArgumentParser:
     p = _Parser(
         prog="python -m vislumbra",
-        description="Vislumbra: brillo, contraste, gamma y temperatura de color de la pantalla.",
+        description="Vislumbra: brillo, contraste, gamma y temperatura de color de la pantalla. "
+                    "Sin argumentos abre la app.",
         add_help=False,
         allow_abbrev=False,
         formatter_class=_Formato,
@@ -97,6 +102,10 @@ def _crear_parser() -> argparse.ArgumentParser:
                     help="aplica, espera S segundos y restaura solo")
     de.add_argument("--persist", action="store_true",
                     help="aplica y termina sin restaurar (usa --reset para deshacerlo)")
+    pf = p.add_argument_group("Perfiles")
+    pf.add_argument("--perfil", metavar="NOMBRE|siguiente", default=None,
+                    help="con la app abierta, cambia el perfil activo; sin ella, aplica ese perfil "
+                         "(admite --monitor, --duration y --persist)")
     ac = p.add_argument_group("Otras acciones")
     ac.add_argument("--list", action="store_true", help="muestra los monitores activos")
     ac.add_argument("--simulate", action="store_true",
@@ -162,10 +171,14 @@ def _destino(monitores: list[display.Monitor]) -> str:
 
 def _comprobar_uso(a: argparse.Namespace) -> str | None:
     hay_ajuste = any(v is not None for v in (a.gamma, a.brightness, a.contrast, a.temp))
-    if a.reset and (hay_ajuste or a.simulate or a.duration or a.persist or a.list):
+    if a.reset and (hay_ajuste or a.simulate or a.duration or a.persist or a.list or a.perfil is not None):
         return "--reset no se mezcla con ajustes ni con otras acciones."
-    if a.list and (hay_ajuste or a.simulate or a.duration or a.persist):
+    if a.list and (hay_ajuste or a.simulate or a.duration or a.persist or a.perfil is not None):
         return "--list no se mezcla con ajustes ni con otras acciones."
+    if a.perfil is not None and (hay_ajuste or a.channel is not None):
+        return "--perfil no se mezcla con ajustes (--gamma, --brightness, --contrast, --temp) ni con --channel."
+    if a.perfil is not None and not a.perfil.strip():
+        return "--perfil necesita el nombre de un perfil o «siguiente»."
     if a.duration and a.persist:
         return "--duration y --persist son excluyentes."
     if a.simulate and (a.duration or a.persist):
@@ -178,10 +191,28 @@ def _comprobar_uso(a: argparse.Namespace) -> str | None:
         return "--list no usa --monitor ni --channel."
     if a.reset and a.channel is not None:
         return "--reset no usa --channel."
-    if not (hay_ajuste or a.list or a.reset):
+    if not (hay_ajuste or a.list or a.reset or a.perfil is not None):
         return ("indica al menos un ajuste (--gamma, --brightness, --contrast o --temp), "
-                "--list o --reset.")
+                "--perfil, --list o --reset.")
     return None
+
+
+def _hay_app() -> bool:
+    """¿Hay una instancia de la app abierta? (se importa aquí para no cargar Tk en la orden normal)"""
+    from .app import hay_app_abierta
+
+    return hay_app_abierta()
+
+
+def _abrir_app() -> int:
+    try:
+        from .app import App
+
+        return App().ejecutar()
+    except display.ErrorPantalla as e:
+        return _error(str(e), ERROR_PANTALLA)
+    except KeyboardInterrupt:  # la sesión ya restauró la pantalla
+        return INTERRUMPIDO
 
 
 def _listar() -> int:
@@ -206,11 +237,48 @@ def _simular(rampa: color.Rampa) -> int:
 
 def _reiniciar(a: argparse.Namespace) -> int:
     monitores = display.elegir_monitores("todos" if a.monitor is None else a.monitor, display.listar_monitores())
+    if _hay_app():  # que suelte la pantalla antes: si no, podría devolver su rampa original después
+        from .app import ESPERA_RESET_MS, pedir_desactivar
+
+        if pedir_desactivar():
+            _dormir(ESPERA_RESET_MS / 1000)
+            print("La app Vislumbra que estaba abierta se ha desactivado (actívala de nuevo con «Activo»).")
     display.restaurar_identidad(monitores)
     print(f"Rampa neutra aplicada {_destino(monitores)}.")
     print("Nota: --reset aplica siempre la identidad; no puede conocer una rampa "
           "original distinta (por ejemplo, un perfil de color).")
     return OK
+
+
+def _perfil(a: argparse.Namespace) -> int:
+    """``--perfil``: con la app abierta le pide el cambio; sin ella, aplica el perfil como cualquier ajuste."""
+    conf, avisos = perfiles.cargar()
+    for aviso in avisos:
+        print(f"Aviso: {aviso}", file=sys.stderr)
+    nombre = a.perfil.strip()
+    siguiente = nombre.casefold() == perfiles.SIGUIENTE
+    try:
+        elegido = None if siguiente else conf.obtener(nombre)
+    except perfiles.PerfilNoEncontrado as e:
+        return _error(f"{e} Perfiles disponibles: {', '.join(conf.nombres())}.", ERROR_VALOR)
+    if _hay_app():
+        if a.monitor is not None or a.duration or a.persist or a.simulate:
+            return _error("con Vislumbra abierta, --perfil solo cambia el perfil activo y no admite "
+                          "--monitor, --duration, --persist ni --simulate.", ERROR_USO)
+        from .app import PETICION_PERFIL, PETICION_SIGUIENTE, pedir_perfil
+
+        if not pedir_perfil(PETICION_SIGUIENTE if siguiente else PETICION_PERFIL + elegido.nombre):
+            return _error("no se pudo contactar con la app abierta.", ERROR_PANTALLA)
+        print("Petición enviada a Vislumbra: " + ("siguiente perfil." if siguiente else f"perfil «{elegido.nombre}»."))
+        return OK
+    if siguiente:
+        nombres = conf.nombres()
+        i = next((k for k, n in enumerate(nombres) if n.casefold() == conf.perfil_activo.casefold()), -1)
+        elegido = conf.obtener(nombres[(i + 1) % len(nombres)])
+    rampa = color.rampa_identidad() if elegido.es_normal else color.construir_rampa_segura(elegido.ajuste)
+    if a.simulate:
+        return _simular(rampa)
+    return _aplicar(a, rampa, f"perfil «{elegido.nombre}»")
 
 
 def _esperar(segundos: float | None) -> None:
@@ -220,9 +288,9 @@ def _esperar(segundos: float | None) -> None:
         time.sleep(0.2)
 
 
-def _aplicar(a: argparse.Namespace, rampa: color.Rampa) -> int:
+def _aplicar(a: argparse.Namespace, rampa: color.Rampa, descripcion: str | None = None) -> int:
     monitores = display.elegir_monitores("principal" if a.monitor is None else a.monitor, display.listar_monitores())
-    descripcion, destino = _descripcion(a), _destino(monitores)
+    descripcion, destino = descripcion or _descripcion(a), _destino(monitores)
     with display.SesionGamma(monitores) as sesion:
         for m in sesion.originales_modificados():
             print(f"Aviso: el monitor {m.numero} ya tenía una rampa modificada (otra herramienta "
@@ -251,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(flujo, "reconfigure"):
             flujo.reconfigure(errors="replace")
     argumentos = _normalizar(list(sys.argv[1:] if argv is None else argv))
+    if not argumentos:
+        return _abrir_app()
     try:
         a = _crear_parser().parse_args(argumentos)
     except SystemExit as salida:  # error de uso, --help o --version
@@ -264,9 +334,14 @@ def main(argv: list[str] | None = None) -> int:
             return _listar()
         if a.reset:
             return _reiniciar(a)
+        if a.perfil is not None:
+            return _perfil(a)
         rampa = color.construir_rampa_segura(_construir_ajuste(a))
         if a.simulate:
             return _simular(rampa)
+        if _hay_app():
+            return _error("Vislumbra está abierta y controla la pantalla. Cámbialo desde su panel, ciérrala "
+                          "(Salir, en la bandeja) o desactívala con --reset.", ERROR_PANTALLA)
         return _aplicar(a, rampa)
     except color.RampaIlegible as e:
         return _error(f"{e} No se ha aplicado nada.", ERROR_VALOR)

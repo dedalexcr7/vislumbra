@@ -31,6 +31,7 @@ ASIGNACION_ACTIVO = "activo"
 ASIGNACION_FIJO = "fijo"
 NOMBRE_MAX = 40
 NOMBRE_ARCHIVO = "config.json"
+SIGUIENTE = "siguiente"  # palabra reservada de ``--perfil siguiente``
 
 
 class ErrorPerfil(ValueError):
@@ -173,6 +174,8 @@ class Configuracion:
             raise ErrorPerfil("el nombre del perfil no puede llevar caracteres de control.")
         if _clave(limpio) == _clave(NORMAL):
             raise ErrorPerfil(f"«{NORMAL}» es el perfil neutro y no se puede usar ese nombre.")
+        if _clave(limpio) == SIGUIENTE:
+            raise ErrorPerfil(f"«{limpio}» es una palabra reservada de la orden --perfil.")
         if self.existe(limpio) and (excepto is None or _clave(limpio) != _clave(excepto)):
             raise ErrorPerfil(f"ya existe un perfil llamado «{limpio}».")
         return limpio

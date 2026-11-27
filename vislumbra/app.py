@@ -344,35 +344,39 @@ class App:
                 pass
 
     def _parar_todo(self) -> None:
-        """Cierre ordenado e idempotente: aplicador, sesión (restaura), bandeja, hilo de eventos, mutex y bucle de Tk."""
+        """Cierre ordenado e idempotente: aplicador, sesión (restaura), bandeja, hilo de eventos, mutex y bucle de Tk.
+
+        Cada paso va aparte: si uno falla, los demás se hacen igualmente (lo importante es restaurar y liberar).
+        """
         self._cerrando = True
         self._corriendo = False
-        if self.aplicador is not None:
-            self.aplicador.parar()
-        if self.sesion is not None:
+
+        def paso(que: str, accion) -> None:
             try:
-                self.sesion.cerrar()
-            except display.ErrorPantalla as e:
-                print(f"Aviso: {e}", file=sys.stderr)
+                accion()
+            except Exception as e:  # noqa: BLE001 - al cerrar no debe quedar nada a medias
+                print(f"Aviso: no se pudo {que}: {e}", file=sys.stderr)
+
+        if self.aplicador is not None:
+            paso("parar el aplicador", self.aplicador.parar)
+        if self.sesion is not None:
+            paso("restaurar la pantalla", self.sesion.cerrar)
         if self.bandeja is not None:
-            self.bandeja.detener()
+            paso("quitar el icono de la bandeja", self.bandeja.detener)
             self.bandeja = None
         if "parar" in self._eventos:
-            self._eventos["parar"].activar()
+            paso("avisar al hilo de eventos", self._eventos["parar"].activar)
         if self._hilo_eventos is not None:
-            self._hilo_eventos.join(2.0)
+            paso("esperar al hilo de eventos", lambda: self._hilo_eventos.join(2.0))
             self._hilo_eventos = None
-        for ev in self._eventos.values():
-            ev.cerrar()
+        for ev in list(self._eventos.values()):
+            paso("cerrar un evento", ev.cerrar)
         self._eventos = {}
         if self._mutex is not None:
-            self._mutex.cerrar()
+            paso("liberar la instancia única", self._mutex.cerrar)
             self._mutex = None
         if self.raiz is not None:
-            try:
-                self.raiz.quit()
-            except tk.TclError:
-                pass
+            paso("salir del bucle de la interfaz", self.raiz.quit)
 
 
 # --- Lado de la terminal ------------------------------------------------------------------------------------------------------------

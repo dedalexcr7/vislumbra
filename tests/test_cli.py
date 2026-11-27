@@ -4,8 +4,10 @@
 import pytest
 
 from vislumbra import __main__ as cli
-from vislumbra import display
+from vislumbra import app as app_mod
+from vislumbra import color, display, perfiles
 from vislumbra.display import Monitor
+from vislumbra.perfiles import Configuracion, Perfil
 
 MONITORES = [
     Monitor(1, r"\\.\DISPLAY1", "Adaptador A", None, False),
@@ -44,11 +46,37 @@ class SesionFalsa:
         self.conservada = True
 
 
+class AppFalsa:
+    """La app abierta, simulada: estas pruebas nunca abren la app de verdad ni miran si hay una."""
+
+    abierta = False
+    abiertas = 0
+    peticiones: list[str] = []
+    desactivaciones = 0
+    esperas: list[float] = []
+
+
+def configuracion_de_prueba():
+    c = Configuracion()
+    c.guardar(Perfil("Oscuro", color.Ajuste.uniforme(0.0, 7.5, 1.7)))
+    c.guardar(Perfil("Código", color.Ajuste.uniforme(-20.0, 0.0, 1.0, 6000.0)))
+    c.perfil_activo = "Oscuro"
+    return c
+
+
 @pytest.fixture(autouse=True)
 def pantalla_falsa(monkeypatch):
     SesionFalsa.creadas, SesionFalsa.sin_coincidir = [], []
     SesionFalsa.modificados, SesionFalsa.fallo = [], None
+    AppFalsa.abierta, AppFalsa.abiertas, AppFalsa.desactivaciones = False, 0, 0
+    AppFalsa.peticiones, AppFalsa.esperas = [], []
     reiniciados = []
+    monkeypatch.setattr(cli, "_hay_app", lambda: AppFalsa.abierta)
+    monkeypatch.setattr(cli, "_abrir_app", lambda: setattr(AppFalsa, "abiertas", AppFalsa.abiertas + 1) or 0)
+    monkeypatch.setattr(cli, "_dormir", AppFalsa.esperas.append)
+    monkeypatch.setattr(app_mod, "pedir_perfil", lambda peticion, *a, **k: AppFalsa.peticiones.append(peticion) or True)
+    monkeypatch.setattr(app_mod, "pedir_desactivar", lambda *a, **k: setattr(AppFalsa, "desactivaciones", AppFalsa.desactivaciones + 1) or True)
+    monkeypatch.setattr(perfiles, "cargar", lambda *a, **k: (configuracion_de_prueba(), []))  # nunca el %APPDATA% real
     monkeypatch.setattr(display, "listar_monitores", lambda: list(MONITORES))
     monkeypatch.setattr(display, "SesionGamma", SesionFalsa)
     monkeypatch.setattr(display, "restaurar_identidad", lambda ms: reiniciados.append(ms))
@@ -226,7 +254,6 @@ def test_nan_se_rechaza(capsys):
 
 # --- Uso incorrecto (código 2) ---------------------------------------------------------------
 @pytest.mark.parametrize("argv, texto", [
-    ([], "indica al menos un ajuste"),
     (["--monitor", "2"], "indica al menos un ajuste"),
     (["--reset", "--gamma", "1.2"], "--reset no se mezcla"),
     (["--list", "--gamma", "1.2"], "--list no se mezcla"),
@@ -282,3 +309,120 @@ def test_monitor_vacio_es_un_error_y_no_cae_al_principal(capsys, pantalla_falsa)
 
 def test_channel_all_explicito_sigue_funcionando(capsys):
     assert ejecutar(capsys, "--simulate", "--gamma", "1.2", "--channel", "all")[0] == 0
+
+
+# --- Sin argumentos: abre la app ---------------------------------------------------------------------------------
+def test_sin_argumentos_abre_la_app(capsys):
+    assert ejecutar(capsys)[0] == 0
+    assert AppFalsa.abiertas == 1 and SesionFalsa.creadas == []
+
+
+def test_con_argumentos_no_abre_la_app(capsys):
+    ejecutar(capsys, "--simulate", "--gamma", "1.2")
+    assert AppFalsa.abiertas == 0
+
+
+# --- --perfil ----------------------------------------------------------------------------------------------------------
+def test_perfil_sin_la_app_lo_aplica_como_un_ajuste(capsys):
+    codigo, out, _ = ejecutar(capsys, "--perfil", "oscuro")
+    assert codigo == 0 and "Aplicado al monitor 2 (principal): perfil «Oscuro»." in out
+    (sesion,) = SesionFalsa.creadas
+    assert sesion.aplicadas[0] == color.construir_rampa_segura(color.Ajuste.uniforme(0.0, 7.5, 1.7))
+    assert sesion.cerrada and AppFalsa.peticiones == []
+
+
+def test_perfil_normal_aplica_la_rampa_neutra(capsys):
+    assert ejecutar(capsys, "--perfil", "Normal")[0] == 0
+    assert SesionFalsa.creadas[0].aplicadas[0] == color.rampa_identidad()
+
+
+def test_perfil_siguiente_sin_la_app_sigue_al_activo_de_la_configuracion(capsys):
+    _, out, _ = ejecutar(capsys, "--perfil", "siguiente")  # el activo es «Oscuro»: sigue «Código»
+    assert "perfil «Código»" in out
+
+
+def test_perfil_admite_monitor_duration_y_persist_sin_la_app(capsys):
+    ejecutar(capsys, "--perfil", "Oscuro", "--monitor", "todos", "--persist")
+    assert [m.numero for m in SesionFalsa.creadas[-1].monitores] == [1, 2, 3] and SesionFalsa.creadas[-1].conservada
+    assert ejecutar(capsys, "--perfil", "Oscuro", "--duration", "5")[0] == 0
+
+
+def test_perfil_con_simulate_no_toca_la_pantalla(capsys):
+    codigo, out, _ = ejecutar(capsys, "--perfil", "Oscuro", "--simulate")
+    assert codigo == 0 and "no se ha tocado la pantalla" in out and SesionFalsa.creadas == []
+
+
+def test_perfil_inexistente_da_codigo_1_y_lista_los_perfiles(capsys):
+    codigo, _, err = ejecutar(capsys, "--perfil", "NoExiste")
+    assert codigo == 1 and "no existe" in err and "Perfiles disponibles: Normal, Oscuro, Código." in err
+    assert SesionFalsa.creadas == []
+
+
+def test_perfil_con_la_app_abierta_envia_la_peticion(capsys):
+    AppFalsa.abierta = True
+    codigo, out, _ = ejecutar(capsys, "--perfil", "código")
+    assert codigo == 0 and AppFalsa.peticiones == ["perfil:Código"] and "perfil «Código»" in out
+    ejecutar(capsys, "--perfil", "siguiente")
+    assert AppFalsa.peticiones[-1] == "siguiente"
+    assert SesionFalsa.creadas == []  # no aplica nada por su cuenta
+
+
+def test_perfil_inexistente_con_la_app_abierta_tambien_da_codigo_1(capsys):
+    AppFalsa.abierta = True
+    assert ejecutar(capsys, "--perfil", "Nada")[0] == 1 and AppFalsa.peticiones == []
+
+
+@pytest.mark.parametrize("extra", [["--monitor", "2"], ["--duration", "5"], ["--persist"], ["--simulate"]])
+def test_con_la_app_abierta_perfil_no_admite_destino_ni_duracion(capsys, extra):
+    AppFalsa.abierta = True
+    codigo, _, err = ejecutar(capsys, "--perfil", "Oscuro", *extra)
+    assert codigo == 2 and "solo cambia el perfil activo" in err and AppFalsa.peticiones == []
+
+
+@pytest.mark.parametrize("argv, texto", [
+    (["--perfil", "Oscuro", "--gamma", "1.2"], "--perfil no se mezcla con ajustes"),
+    (["--perfil", "Oscuro", "--channel", "r"], "--perfil no se mezcla con ajustes"),
+    (["--perfil", "Oscuro", "--reset"], "--reset no se mezcla"),
+    (["--perfil", "Oscuro", "--list"], "--list no se mezcla"),
+    (["--perfil", "  "], "necesita el nombre"),
+    (["--perfil"], "se esperaba un valor"),
+])
+def test_perfil_uso_incorrecto(capsys, argv, texto):
+    codigo, _, err = ejecutar(capsys, *argv)
+    assert codigo == 2 and texto in err and SesionFalsa.creadas == []
+
+
+# --- Con la app abierta -------------------------------------------------------------------------------------------------------
+def test_con_la_app_abierta_los_ajustes_se_rechazan_con_codigo_3(capsys):
+    AppFalsa.abierta = True
+    codigo, _, err = ejecutar(capsys, "--gamma", "1.2")
+    assert codigo == 3 and "Vislumbra está abierta" in err and SesionFalsa.creadas == []
+
+
+def test_con_la_app_abierta_list_y_simulate_siguen_funcionando(capsys):
+    AppFalsa.abierta = True
+    assert ejecutar(capsys, "--list")[0] == 0
+    assert ejecutar(capsys, "--simulate", "--gamma", "1.2")[0] == 0
+
+
+def test_un_valor_invalido_se_avisa_antes_que_la_app_abierta(capsys):
+    AppFalsa.abierta = True
+    codigo, _, err = ejecutar(capsys, "--gamma", "7")
+    assert codigo == 1 and "fuera del rango" in err
+
+
+def test_reset_con_la_app_abierta_la_desactiva_antes_de_aplicar_la_identidad(capsys, pantalla_falsa):
+    AppFalsa.abierta = True
+    codigo, out, _ = ejecutar(capsys, "--reset")
+    assert codigo == 0 and AppFalsa.desactivaciones == 1 and AppFalsa.esperas == [app_mod.ESPERA_RESET_MS / 1000]
+    assert [m.numero for m in pantalla_falsa[0]] == [1, 2, 3] and "se ha desactivado" in out
+
+
+def test_reset_sin_la_app_no_espera(capsys, pantalla_falsa):
+    assert ejecutar(capsys, "--reset")[0] == 0
+    assert AppFalsa.desactivaciones == 0 and AppFalsa.esperas == []
+
+
+def test_la_ayuda_menciona_perfil_y_que_sin_argumentos_abre_la_app(capsys):
+    _, out, _ = ejecutar(capsys, "--help")
+    assert "--perfil" in out and "Sin argumentos abre la app" in " ".join(out.split())  # la ayuda reparte las líneas

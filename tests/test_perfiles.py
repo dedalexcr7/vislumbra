@@ -49,7 +49,7 @@ def test_normal_no_se_guarda_ni_se_renombra_ni_se_borra(conf):
         conf.borrar("Normal")
 
 
-@pytest.mark.parametrize("nombre", ["", "   ", "x" * 41, "con\nsalto", "Normal", " NORMAL "])
+@pytest.mark.parametrize("nombre", ["", "   ", "x" * 41, "con\nsalto", "Normal", " NORMAL ", "siguiente", "Siguiente"])
 def test_nombres_no_validos(conf, nombre):
     with pytest.raises(ErrorPerfil):
         conf.validar_nombre(nombre)
