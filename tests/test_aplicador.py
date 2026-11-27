@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Pruebas de ``vislumbra.aplicador`` con una sesión doble y un reloj falso: no tocan la pantalla."""
 
+import threading
 import time
 from dataclasses import dataclass
 
@@ -387,3 +388,103 @@ def test_el_intervalo_de_vigilancia_por_defecto_es_corto():
     from vislumbra.aplicador import INTERVALO_VIGILANCIA
 
     assert INTERVALO_VIGILANCIA <= 0.3
+
+
+# --- Emergencia ----------------------------------------------------------------------------------------------------------
+def test_la_emergencia_pide_la_rampa_original_a_todos_los_monitores(montaje):
+    ap, sesion, avisos, _ = montaje
+    ap.pedir({1: R1, 2: R2, 3: R1})
+    ap.procesar_cambio()
+    assert all(sesion.pantalla[n] != IDENTIDAD for n in (1, 2, 3))
+    ap.emergencia()
+    assert all(sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3)) and ap.aplicado == {} and ap.en_emergencia
+    assert [a.tipo for a in avisos] == ["aplicado"]  # sin errores
+
+
+def test_tras_la_emergencia_se_ignoran_las_peticiones_hasta_reanudar(montaje):
+    ap, sesion, _, _ = montaje
+    ap.emergencia()
+    ap.pedir({1: R1})
+    ap.procesar_cambio()
+    assert sesion.llamadas[-1] == {3: None} and sesion.pantalla[1] == IDENTIDAD and ap.aplicado == {}
+    ap.reanudar()
+    assert not ap.en_emergencia
+    ap.pedir({1: R1})
+    ap.procesar_cambio()
+    assert sesion.pantalla[1] == R1
+
+
+def test_la_emergencia_descarta_lo_pendiente(montaje):
+    ap, sesion, _, _ = montaje
+    ap.pedir({1: R1})  # pendiente, sin procesar
+    ap.emergencia()
+    ap.procesar_cambio()
+    assert sesion.pantalla[1] == IDENTIDAD and ap.aplicado == {}
+
+
+def test_la_vigilancia_no_reaplica_tras_la_emergencia(montaje):
+    ap, sesion, _, _ = montaje
+    ap.pedir({1: R1})
+    ap.procesar_cambio()
+    ap.emergencia()
+    sesion.pantalla[1] = list(R2)  # otro programa toca la rampa
+    llamadas = len(sesion.llamadas)
+    ap.vigilar(10.0)
+    assert len(sesion.llamadas) == llamadas and sesion.pantalla[1] == R2
+
+
+def test_si_un_monitor_falla_en_la_emergencia_los_demas_se_restauran(montaje):
+    ap, sesion, avisos, _ = montaje
+    ap.pedir({1: R1, 2: R1, 3: R1})
+    ap.procesar_cambio()
+    sesion.fallos = [display.ErrorPantalla("el monitor 1 no responde")]
+    ap.emergencia()
+    assert sesion.pantalla[1] == R1 and sesion.pantalla[2] == IDENTIDAD and sesion.pantalla[3] == IDENTIDAD
+    error = [a for a in avisos if a.tipo == "error"]
+    assert len(error) == 1 and "monitor 1" in error[0].mensaje
+
+
+def test_la_emergencia_es_idempotente(montaje):
+    ap, sesion, _, _ = montaje
+    ap.emergencia()
+    ap.emergencia()
+    assert all(sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3)) and ap.en_emergencia
+
+
+def test_la_emergencia_espera_a_la_escritura_en_curso_y_gana(montaje):
+    """Si un deslizador está escribiendo justo ahora, la emergencia deja la pantalla suelta DESPUÉS, no antes."""
+    ap, sesion, _, _ = montaje
+    original = sesion.aplicar_por_monitor
+    dentro = threading.Event()
+
+    def lenta(rampas):
+        dentro.set()
+        time.sleep(0.2)
+        return original(rampas)
+
+    sesion.aplicar_por_monitor = lenta
+    ap.pedir({1: R1, 2: R1, 3: R1})
+    hilo = threading.Thread(target=ap.procesar_cambio)
+    hilo.start()
+    assert dentro.wait(2.0)
+    ap.emergencia()  # bloquea hasta que termine la escritura en curso
+    hilo.join(5)
+    assert all(sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3)) and ap.aplicado == {}
+
+
+def test_emergencia_con_el_hilo_real_y_peticiones_llegando():
+    ap, sesion, avisos = hilo_real()
+    ap.iniciar()
+    try:
+        ap.pedir({1: R1})
+        assert esperar(lambda: sesion.pantalla[1] == R1)
+        ap.emergencia()  # desde otro hilo (el de atajos)
+        for r in (R2, R3, R1):
+            ap.pedir({1: r})  # un deslizador que sigue moviéndose
+        time.sleep(0.3)
+        assert sesion.pantalla[1] == IDENTIDAD and ap.vivo
+        ap.reanudar()
+        ap.pedir({1: R2})
+        assert esperar(lambda: sesion.pantalla[1] == R2)
+    finally:
+        ap.parar()

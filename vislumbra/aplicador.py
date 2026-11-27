@@ -61,6 +61,8 @@ class Aplicador:
         self._intervalo_vigilancia = intervalo_vigilancia
         self._intervalo_minimo = intervalo_minimo
         self._bloqueo = threading.Lock()
+        self._escritura = threading.RLock()  # una sola escritura a la vez; la emergencia espera a la que esté en curso
+        self._emergencia = False
         self._deseado: dict[int, Rampa | None] | None = None
         self._cambio = threading.Event()
         self._parar = threading.Event()
@@ -115,8 +117,42 @@ class Aplicador:
     def pedir(self, rampas: dict[int, Rampa | None]) -> None:
         """Deja el estado deseado; si ya había uno sin aplicar, se sustituye (el último gana)."""
         with self._bloqueo:
+            if self._emergencia:  # tras una emergencia no se acepta nada hasta ``reanudar()``
+                return
             self._deseado = dict(rampas)
         self._cambio.set()
+
+    # -- emergencia ------------------------------------------------------------------------------------------------
+    def emergencia(self) -> None:
+        """Suelta la pantalla YA, desde cualquier hilo y sin pasar por la interfaz.
+
+        1. Deja de aceptar peticiones (``pedir`` las ignora) y descarta la pendiente; la vigilancia no reaplica.
+        2. Espera a la escritura que esté en curso (unos milisegundos) y pide a **cada** monitor su rampa original, uno a uno:
+           si falla uno, los demás se restauran igualmente.
+        No hay carrera con un deslizador que se esté moviendo. Vuelve a aceptar peticiones con ``reanudar()``.
+        """
+        with self._bloqueo:
+            self._emergencia = True
+            self._deseado = None
+        with self._escritura:
+            fallos = []
+            for m in self._sesion.monitores:
+                try:
+                    self._sesion.aplicar_por_monitor({m.numero: None})
+                except Exception as e:  # noqa: BLE001 - la emergencia nunca se detiene por un monitor
+                    fallos.append(f"monitor {m.numero}: {e}")
+            self._aceptado.clear()
+        if fallos:
+            self._avisar(Aviso("error", "La emergencia no pudo restaurar toda la pantalla: " + "; ".join(fallos)))
+
+    def reanudar(self) -> None:
+        """Vuelve a aceptar peticiones tras una emergencia."""
+        with self._bloqueo:
+            self._emergencia = False
+
+    @property
+    def en_emergencia(self) -> bool:
+        return self._emergencia
 
     # -- aplicar --------------------------------------------------------------------------------------
     def procesar_cambio(self) -> None:
@@ -126,6 +162,12 @@ class Aplicador:
             self._cambio.clear()
         if deseado is None:
             return
+        with self._escritura:
+            if self._emergencia:
+                return
+            self._aplicar_deseado(deseado)
+
+    def _aplicar_deseado(self, deseado: dict[int, Rampa | None]) -> None:
         cambios = {
             n: r for n, r in deseado.items()
             if r != self._aceptado.get(n) and not (r is None and n not in self._aceptado)
@@ -170,7 +212,7 @@ class Aplicador:
     # -- vigilancia --------------------------------------------------------------------------------------
     def vigilar(self, ahora: float) -> None:
         """Comprueba la lista de monitores y que las rampas aplicadas sigan puestas."""
-        if self.monitores_cambiaron:
+        if self.monitores_cambiaron or self._emergencia:
             return
         try:
             actuales = self._firma(self._listar())
@@ -202,10 +244,13 @@ class Aplicador:
                 ))
                 continue
             historial.append(ahora)
-            try:
-                self._sesion.aplicar_por_monitor({n: esperada})
-            except (display.ErrorPantalla, color.ErrorColor) as e:
-                self._avisar(Aviso("error", f"No se pudo volver a aplicar la rampa del monitor {n}: {e}", (n,)))
+            with self._escritura:
+                if self._emergencia:
+                    return
+                try:
+                    self._sesion.aplicar_por_monitor({n: esperada})
+                except (display.ErrorPantalla, color.ErrorColor) as e:
+                    self._avisar(Aviso("error", f"No se pudo volver a aplicar la rampa del monitor {n}: {e}", (n,)))
 
     @property
     def en_conflicto(self) -> set[int]:
