@@ -22,7 +22,7 @@ import traceback
 from collections.abc import Callable
 from pathlib import Path
 
-from . import display, perfiles, sistema, tray
+from . import arranque, display, perfiles, sistema, tray
 from .aplicador import Aplicador, Aviso
 from .estado import Estado
 from .panel import AVISO, PELIGRO, TEXTO_SUAVE, Panel
@@ -52,6 +52,8 @@ class App:
         con_bandeja: bool = True,
         reloj: Callable[[], float] = time.monotonic,
         intervalo_vigilancia: float | None = None,
+        oculto: bool = False,
+        arranque=arranque,
     ):
         self._raiz_dada = raiz
         self.ruta_config = ruta_config
@@ -61,6 +63,9 @@ class App:
         self._con_bandeja = con_bandeja
         self._reloj = reloj
         self._intervalo_vigilancia = intervalo_vigilancia
+        self._oculto = oculto  # al iniciar sesión: solo el icono, sin abrir el panel
+        self._arranque = arranque
+        self._arranque_activo = False
         self.cola: queue.Queue = queue.Queue()
         self.raiz = self.estado = self.panel = self.sesion = self.aplicador = self.bandeja = None
         self._mutex = None
@@ -78,7 +83,7 @@ class App:
         self._mutex = sistema.Mutex(self._nombres["mutex"])
         if self._mutex.ya_existia:
             self._mutex.cerrar()
-            existente = sistema.Evento.abrir(self._nombres["mostrar"])
+            existente = None if self._oculto else sistema.Evento.abrir(self._nombres["mostrar"])
             if existente is not None:
                 existente.activar()
                 existente.cerrar()
@@ -125,8 +130,14 @@ class App:
                 f"El monitor {m.numero} ya tenía una rampa modificada (otra herramienta o un perfil de color); "
                 "al salir se restaurará esa.", AVISO, 20,
             )
+        self._arranque_activo = self._arranque.esta_activado()
+        if self._arranque_activo and not self._arranque.apunta_a_algo_que_existe():
+            self.panel.mensaje("El acceso directo de «Iniciar con Windows» apunta a un programa que ya no existe: "
+                               "desactívalo y vuelve a activarlo desde el menú de la bandeja.", AVISO, 30)
+        self._actualizar_info()
         self.rampas_cambiaron()  # aplica lo guardado: el perfil activo y los fijos
-        self.panel.mostrar()
+        if not self._oculto:
+            self.panel.mostrar()
         self.raiz.after(INTERVALO_COLA_MS, self._procesar_cola)
 
     def _crear_aplicador(self) -> None:
@@ -187,7 +198,7 @@ class App:
         e = self.estado
         self._info = tray.InfoBandeja(
             activo_on=e.activo_on, perfil_activo=e.activo, perfiles=tuple(e.nombres()), ab=e.ab and e.activo_on,
-            grupos=tuple(e.grupos()),
+            grupos=tuple(e.grupos()), arranque=self._arranque_activo,
         )
         if self.bandeja is not None:
             self.bandeja.actualizar()
@@ -258,10 +269,27 @@ class App:
                 if e.activo_on:
                     e.alternar_ab()
                     self._refrescar_todo()
+            elif accion == tray.ARRANQUE:
+                self._alternar_arranque()
             elif accion == tray.SALIR:
                 self.salir()
         except perfiles.ErrorPerfil as err:
             self.panel.mensaje(str(err), PELIGRO)
+
+    def _alternar_arranque(self) -> None:
+        """«Iniciar con Windows»: crea o borra el acceso directo de la carpeta Inicio (sin registro)."""
+        try:
+            if self._arranque.esta_activado():
+                self._arranque.desactivar()
+                texto = "Vislumbra ya no se iniciará con Windows."
+            else:
+                self._arranque.activar()
+                texto = "Vislumbra se iniciará con Windows (acceso directo en la carpeta Inicio, solo el icono)."
+            self.panel.mensaje(texto, TEXTO_SUAVE, 10)
+        except self._arranque.ErrorArranque as err:
+            self.panel.mensaje(str(err), PELIGRO, 15)
+        self._arranque_activo = self._arranque.esta_activado()
+        self._actualizar_info()
 
     def _desactivar_por_reset(self) -> None:
         """``--reset`` desde la terminal: la app suelta la pantalla y se queda desactivada."""

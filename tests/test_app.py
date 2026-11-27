@@ -52,6 +52,31 @@ class SesionFalsa:
         return []
 
 
+class ArranqueFalso:
+    """«Iniciar con Windows» simulado: estas pruebas nunca tocan la carpeta Inicio real."""
+
+    ErrorArranque = app_mod.arranque.ErrorArranque
+
+    def __init__(self):
+        self.activado = False
+        self.falla = False
+        self.apunta = True
+
+    def esta_activado(self):
+        return self.activado
+
+    def apunta_a_algo_que_existe(self):
+        return self.apunta
+
+    def activar(self):
+        if self.falla:
+            raise self.ErrorArranque("no se pudo crear el acceso directo")
+        self.activado = True
+
+    def desactivar(self):
+        self.activado = False
+
+
 class Entorno:
     """Todo lo que hace falta para probar una ``App``."""
 
@@ -65,6 +90,7 @@ class Entorno:
             perfiles.guardar_en(conf, self.ruta_config)
         self.ventana = ventana
         self.apps: list[App] = []
+        self.arranque = ArranqueFalso()
 
     def crear_sesion(self, ms):
         s = SesionFalsa(ms)
@@ -78,11 +104,12 @@ class Entorno:
     def leer(self, m):
         return list(self.sesion.pantalla[m.numero])
 
-    def nueva(self, ventana=None):
+    def nueva(self, ventana=None, oculto=False):
         a = App(
             raiz=ventana or self.ventana, ruta_config=self.ruta_config, ruta_peticion_=self.ruta_peticion,
             listar=lambda: list(self.ms), leer=self.leer, crear_sesion=self.crear_sesion,
             prefijo_sistema=self.prefijo, con_bandeja=False, intervalo_vigilancia=0.05,
+            oculto=oculto, arranque=self.arranque,
         )
         self.apps.append(a)
         return a
@@ -449,3 +476,50 @@ def test_si_falla_la_restauracion_el_cierre_libera_igualmente_todo(entorno, caps
     a._parar_todo()
     assert not a.aplicador.vivo and not app_mod.hay_app_abierta(entorno.prefijo)
     assert "no se pudo restaurar la pantalla" in capsys.readouterr().err
+
+
+# --- Iniciar con Windows y arranque oculto -----------------------------------------------------------------------------------
+def test_con_oculto_la_app_arranca_sin_mostrar_el_panel_pero_aplica_lo_guardado(entorno):
+    a = entorno.nueva(oculto=True)
+    assert a.iniciar() is True
+    assert not a.panel.visible
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+
+
+def test_con_oculto_una_segunda_instancia_no_muestra_el_panel_de_la_primera(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.ocultar()
+    segunda = entorno.nueva(oculto=True)
+    assert segunda.iniciar() is False
+    time.sleep(0.3)
+    a._procesar_cola()
+    assert not a.panel.visible
+
+
+def test_la_bandeja_activa_y_desactiva_el_arranque_con_windows(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert a._info.arranque is False
+    a._atender_bandeja(tray.ARRANQUE, None)
+    assert entorno.arranque.activado and a._info.arranque is True
+    assert "se iniciará con Windows" in a.panel.lbl_aviso.cget("text")
+    a._atender_bandeja(tray.ARRANQUE, None)
+    assert not entorno.arranque.activado and a._info.arranque is False
+    assert "ya no se iniciará" in a.panel.lbl_aviso.cget("text")
+
+
+def test_si_falla_el_arranque_se_avisa_y_no_cambia_el_estado(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    entorno.arranque.falla = True
+    a._atender_bandeja(tray.ARRANQUE, None)
+    assert "no se pudo crear" in a.panel.lbl_aviso.cget("text") and a._info.arranque is False
+
+
+def test_al_arrancar_se_refleja_el_estado_y_se_avisa_si_el_acceso_esta_roto(entorno):
+    entorno.arranque.activado = True
+    entorno.arranque.apunta = False
+    a = entorno.nueva()
+    a.iniciar()
+    assert a._info.arranque is True and "ya no existe" in a.panel.lbl_aviso.cget("text")

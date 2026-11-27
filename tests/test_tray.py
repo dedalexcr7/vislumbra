@@ -19,7 +19,7 @@ def textos(menu):
 def test_el_menu_tiene_las_entradas_del_plan():
     menu = tray.construir_menu(INFO)
     assert textos(menu) == [
-        "Mostrar panel", "Activo", "Perfil activo", "Normal", "Oscuro", "Código", "Siguiente perfil", "Comparar (A/B)",
+        "Mostrar panel", "Activo", "Perfil activo", "Normal", "Oscuro", "Código", "Siguiente perfil", "Comparar (A/B)", "Iniciar con Windows",
         "Salir (restaura la pantalla)",
     ]
     assert sum(i.separador for i in menu) == 2
@@ -82,7 +82,7 @@ def test_la_bandeja_traduce_el_menu_y_envia_las_acciones():
     recibidas = []
     b = Bandeja(lambda accion, arg: recibidas.append((accion, arg)), lambda: INFO)
     items = [b._convertir(i) for i in tray.construir_menu(INFO)]
-    assert len(items) == 11
+    assert len(items) == 12
     por_texto = {getattr(i, "text", None): i for i in items}
     por_texto["Siguiente perfil"](b.icono)  # un MenuItem se invoca con el icono
     por_texto["Activo"](b.icono)
@@ -97,3 +97,10 @@ def test_detener_y_avisar_sin_haber_iniciado_no_fallan():
     b = Bandeja(lambda *a: None, lambda: INFO)
     b.avisar("Título", "Mensaje")
     b.detener()
+
+
+def test_iniciar_con_windows_refleja_el_estado_y_envia_su_accion():
+    por_texto = {i.texto: i for i in tray.construir_menu(INFO)}
+    assert por_texto["Iniciar con Windows"].marcado is False and por_texto["Iniciar con Windows"].accion == tray.ARRANQUE
+    activado = InfoBandeja(arranque=True, perfiles=("Normal",))
+    assert {i.texto: i for i in tray.construir_menu(activado)}["Iniciar con Windows"].marcado is True

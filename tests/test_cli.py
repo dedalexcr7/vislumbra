@@ -54,6 +54,7 @@ class AppFalsa:
     peticiones: list[str] = []
     desactivaciones = 0
     esperas: list[float] = []
+    ocultos: list[bool] = []
 
 
 def configuracion_de_prueba():
@@ -69,10 +70,10 @@ def pantalla_falsa(monkeypatch):
     SesionFalsa.creadas, SesionFalsa.sin_coincidir = [], []
     SesionFalsa.modificados, SesionFalsa.fallo = [], None
     AppFalsa.abierta, AppFalsa.abiertas, AppFalsa.desactivaciones = False, 0, 0
-    AppFalsa.peticiones, AppFalsa.esperas = [], []
+    AppFalsa.peticiones, AppFalsa.esperas, AppFalsa.ocultos = [], [], []
     reiniciados = []
     monkeypatch.setattr(cli, "_hay_app", lambda: AppFalsa.abierta)
-    monkeypatch.setattr(cli, "_abrir_app", lambda: setattr(AppFalsa, "abiertas", AppFalsa.abiertas + 1) or 0)
+    monkeypatch.setattr(cli, "_abrir_app", lambda oculto=False: (setattr(AppFalsa, "abiertas", AppFalsa.abiertas + 1), AppFalsa.ocultos.append(oculto), 0)[2])
     monkeypatch.setattr(cli, "_dormir", AppFalsa.esperas.append)
     monkeypatch.setattr(app_mod, "pedir_perfil", lambda peticion, *a, **k: AppFalsa.peticiones.append(peticion) or True)
     monkeypatch.setattr(app_mod, "pedir_desactivar", lambda *a, **k: setattr(AppFalsa, "desactivaciones", AppFalsa.desactivaciones + 1) or True)
@@ -426,3 +427,16 @@ def test_reset_sin_la_app_no_espera(capsys, pantalla_falsa):
 def test_la_ayuda_menciona_perfil_y_que_sin_argumentos_abre_la_app(capsys):
     _, out, _ = ejecutar(capsys, "--help")
     assert "--perfil" in out and "Sin argumentos abre la app" in " ".join(out.split())  # la ayuda reparte las líneas
+
+
+def test_oculto_abre_la_app_solo_con_el_icono(capsys):
+    assert ejecutar(capsys, "--oculto")[0] == 0
+    assert AppFalsa.abiertas == 1 and AppFalsa.ocultos == [True]
+    ejecutar(capsys)
+    assert AppFalsa.ocultos[-1] is False
+
+
+@pytest.mark.parametrize("extra", [["--gamma", "1.2"], ["--reset"], ["--list"], ["--perfil", "Oscuro"]])
+def test_oculto_no_se_mezcla_con_otras_opciones(capsys, extra):
+    codigo, _, err = ejecutar(capsys, "--oculto", *extra)
+    assert codigo == 2 and "--oculto solo se usa" in err and AppFalsa.abiertas == 0

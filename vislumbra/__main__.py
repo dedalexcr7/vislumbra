@@ -107,6 +107,8 @@ def _crear_parser() -> argparse.ArgumentParser:
                     help="con la app abierta, cambia el perfil activo; sin ella, aplica ese perfil "
                          "(admite --monitor, --duration y --persist)")
     ac = p.add_argument_group("Otras acciones")
+    ac.add_argument("--oculto", action="store_true",
+                    help="abre la app solo con el icono en la bandeja, sin el panel (lo usa «Iniciar con Windows»)")
     ac.add_argument("--list", action="store_true", help="muestra los monitores activos")
     ac.add_argument("--simulate", action="store_true",
                     help="calcula y muestra la rampa sin tocar la pantalla")
@@ -170,6 +172,8 @@ def _destino(monitores: list[display.Monitor]) -> str:
 
 
 def _comprobar_uso(a: argparse.Namespace) -> str | None:
+    if a.oculto:
+        return "--oculto solo se usa sin más opciones: abre la app con el icono en la bandeja."
     hay_ajuste = any(v is not None for v in (a.gamma, a.brightness, a.contrast, a.temp))
     if a.reset and (hay_ajuste or a.simulate or a.duration or a.persist or a.list or a.perfil is not None):
         return "--reset no se mezcla con ajustes ni con otras acciones."
@@ -204,11 +208,11 @@ def _hay_app() -> bool:
     return hay_app_abierta()
 
 
-def _abrir_app() -> int:
+def _abrir_app(oculto: bool = False) -> int:
     try:
         from .app import App
 
-        return App().ejecutar()
+        return App(oculto=oculto).ejecutar()
     except display.ErrorPantalla as e:
         return _error(str(e), ERROR_PANTALLA)
     except KeyboardInterrupt:  # la sesión ya restauró la pantalla
@@ -321,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     argumentos = _normalizar(list(sys.argv[1:] if argv is None else argv))
     if not argumentos:
         return _abrir_app()
+    if argumentos == ["--oculto"]:
+        return _abrir_app(oculto=True)
     try:
         a = _crear_parser().parse_args(argumentos)
     except SystemExit as salida:  # error de uso, --help o --version

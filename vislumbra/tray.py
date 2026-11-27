@@ -28,6 +28,7 @@ ALTERNAR_ACTIVO = "alternar_activo"
 PERFIL = "perfil"  # con el nombre como argumento
 SIGUIENTE = "siguiente"
 COMPARAR = "comparar"
+ARRANQUE = "arranque"
 SALIR = "salir"
 
 
@@ -36,6 +37,7 @@ class InfoBandeja:
     """Lo que la bandeja necesita saber para dibujar el menú y el texto emergente."""
 
     activo_on: bool = True
+    arranque: bool = False  # ¿se inicia con Windows?
     perfil_activo: str = "Normal"
     perfiles: tuple[str, ...] = ("Normal",)
     ab: bool = False
@@ -68,6 +70,7 @@ def construir_menu(info: InfoBandeja) -> list[ItemMenu]:
         ItemMenu("Siguiente perfil", SIGUIENTE),
         SEPARADOR,
         ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
+        ItemMenu("Iniciar con Windows", ARRANQUE, marcado=info.arranque),
         ItemMenu("Salir (restaura la pantalla)", SALIR),
     ]
 
