@@ -106,7 +106,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
   - **Cada monitor sigue al perfil activo o tiene un perfil fijo**; por ejemplo, un monitor de código con su propio ajuste que no cambia al cambiar el perfil activo.
   - Cambio de perfil desde el panel, desde la bandeja y con `--perfil`.
   - Vigilancia que vuelve a aplicar la rampa si algo la reinicia, e instancia única.
-- **Fase 3 – Atajos globales y menú para personalizarlos** (plan aprobado: `docs/plan-fase-3.md`):
+- **Fase 3 – Atajos globales y menú para personalizarlos** (**implementada**, pendiente de probar pulsando y en un juego; plan: `docs/plan-fase-3.md`):
   - Acciones: siguiente y anterior perfil, uno por perfil (también «Normal»), A/B, activo, mostrar u ocultar el panel, modo preciso y **emergencia** (suelta la pantalla sin pasar por la interfaz).
   - Menú «Atajos…» para grabar, cambiar y quitar combinaciones, con detección de conflictos con otras aplicaciones y aviso de AltGr, y aviso opcional al usar un atajo (ninguno, sonido o notificación).
   - Se quita la dependencia `keyboard`.
