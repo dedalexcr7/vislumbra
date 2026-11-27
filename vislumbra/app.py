@@ -22,7 +22,7 @@ import traceback
 from collections.abc import Callable
 from pathlib import Path
 
-from . import arranque, display, perfiles, procesos, programas, sistema, tray
+from . import arranque, atajos, display, perfiles, procesos, programas, sistema, teclado, tray
 from .aplicador import Aplicador, Aviso
 from .estado import Estado
 from .panel import AVISO, PELIGRO, TEXTO_SUAVE, Panel
@@ -57,6 +57,7 @@ class App:
         leer_procesos: Callable[[], frozenset[str]] = procesos.nombres_en_ejecucion,
         leer_ventanas: Callable[[frozenset[str]], dict[str, str]] = procesos.monitores_de_ventanas,
         intervalo_procesos: float = 1.0,
+        crear_gestor: Callable[[Callable], teclado.GestorAtajos] = teclado.GestorAtajos,
     ):
         self._raiz_dada = raiz
         self.ruta_config = ruta_config
@@ -71,6 +72,10 @@ class App:
         self._arranque_activo = False
         self._leer_procesos, self._intervalo_procesos = leer_procesos, intervalo_procesos
         self._leer_ventanas = leer_ventanas
+        self._crear_gestor = crear_gestor
+        self._gestor = None  # atajos globales (hilo propio, RegisterHotKey)
+        self._mapa_registrado: dict | None = None
+        self.resultados_atajos: dict = {}
         self._monitores_prog = programas.SeguimientoMonitores()
         self._vigilados_ventana: frozenset[str] = frozenset()
         self._seguimiento = programas.SeguimientoProgramas()
@@ -151,6 +156,7 @@ class App:
             self.panel.mensaje("El acceso directo de «Iniciar con Windows» apunta a un programa que ya no existe: "
                                "desactívalo y vuelve a activarlo desde el menú de la bandeja.", AVISO, 30)
         self._actualizar_info()
+        self._iniciar_atajos()
         self.rampas_cambiaron()  # aplica lo guardado: el perfil activo y los fijos
         if not self._oculto:
             self.panel.mostrar()
@@ -187,6 +193,7 @@ class App:
     def persistir(self) -> None:
         self._vigilados = self.estado.exes_vigilados()  # por si cambiaron los programas asociados
         self._vigilados_ventana = self.estado.exes_con_ventana()
+        self._registrar_atajos()  # por si cambiaron los atajos o los perfiles que tienen atajo
         try:
             perfiles.guardar_en(self.estado.conf_persistible(), self.ruta_config)
         except OSError as e:
@@ -261,6 +268,10 @@ class App:
             self._atender_aviso(tarea[1])
         elif tipo == "bandeja":
             self._atender_bandeja(tarea[1], tarea[2])
+        elif tipo == "atajo":
+            self._atender_atajo(tarea[1])
+        elif tipo == "emergencia":
+            self._atender_emergencia()
         elif tipo == "procesos":
             self._procesos_cambiaron(tarea[1], tarea[2] if len(tarea) > 2 else None)
 
@@ -289,6 +300,9 @@ class App:
                 if e.activo_on:
                     e.alternar_ab()
                     self._refrescar_todo()
+            elif accion == tray.ATAJOS:
+                self.panel.mostrar()
+                self.panel.abrir_atajos()
             elif accion == tray.PROGRAMAS:
                 self.panel.mostrar()
                 self.panel.abrir_programas()
@@ -381,6 +395,97 @@ class App:
             self.bandeja.avisar("Cambió la lista de monitores", "Vislumbra ha vuelto a aplicar los perfiles guardados.")
 
     # -- cierre -------------------------------------------------------------------------------------------------------------------------------
+    # -- atajos de teclado globales ---------------------------------------------------------------------------------------------
+    @property
+    def gestor_atajos(self):
+        return self._gestor
+
+    def _iniciar_atajos(self) -> None:
+        try:
+            self._gestor = self._crear_gestor(self._al_atajo)
+            self._gestor.iniciar()
+        except teclado.ErrorTeclado as e:
+            self._gestor = None
+            self.panel.mensaje(f"Los atajos de teclado no están disponibles: {e}", PELIGRO, 30)
+            return
+        self._registrar_atajos(forzar=True)
+
+    def _registrar_atajos(self, forzar: bool = False) -> None:
+        """Registra en Windows los atajos del estado (solo si cambiaron). Los que fallan se avisan, sin impedir nada."""
+        if self._gestor is None or self._cerrando:
+            return
+        mapa = self.estado.mapa_atajos()
+        if not forzar and mapa == self._mapa_registrado:
+            return
+        try:
+            resultados = self._gestor.aplicar(mapa)
+        except teclado.ErrorTeclado as e:
+            self.panel.mensaje(f"No se pudieron registrar los atajos: {e}", PELIGRO, 30)
+            return
+        self._mapa_registrado = dict(mapa)
+        self.resultados_atajos = resultados
+        fallidos = [(k, r) for k, r in resultados.items() if not r.ok]
+        if not fallidos:
+            return
+        partes = [f"{atajos.Atajos.etiqueta(k)} ({mapa[k].mostrar()})" for k, _ in fallidos]
+        self.panel.mensaje("Atajos en uso por otra aplicación: " + ", ".join(partes) + ". Cámbialos en «Atajos…».", PELIGRO, 30)
+        if ("accion", "emergencia") in dict(fallidos) and self.bandeja is not None:
+            self.bandeja.avisar("Atajo de emergencia no disponible", f"{mapa[('accion', 'emergencia')].mostrar()} lo usa otra aplicación. Cámbialo en «Atajos…».")
+
+    def _al_atajo(self, clave: tuple[str, str]) -> None:
+        """Hilo de atajos. La emergencia suelta la pantalla aquí mismo, sin esperar a la interfaz."""
+        if clave == ("accion", "emergencia"):
+            if self.aplicador is not None:
+                self.aplicador.emergencia()
+            self.cola.put(("emergencia",))
+        else:
+            self.cola.put(("atajo", clave))
+
+    def _atender_atajo(self, clave: tuple[str, str]) -> None:
+        """Hilo principal: un atajo hace lo mismo que la entrada equivalente de la bandeja."""
+        e = self.estado
+        tipo, nombre = clave
+        if tipo == atajos.ACCION:
+            directas = {
+                "siguiente": (tray.SIGUIENTE, None), "comparar": (tray.COMPARAR, None),
+                "activo": (tray.ALTERNAR_ACTIVO, None), "panel": (tray.MOSTRAR_OCULTAR, None),
+            }
+            if nombre in directas:
+                self._atender_bandeja(*directas[nombre])
+            elif nombre == "anterior":
+                e.mover_activo(-1)
+                self._refrescar_todo(persistir=True)
+            elif nombre == "preciso":
+                self.panel.alternar_preciso()
+        elif tipo == atajos.PERFIL:
+            if not e.activo_on:  # si no, no se vería nada: el atajo reactiva la aplicación
+                e.poner_activo(True)
+            self._atender_bandeja(tray.PERFIL, nombre)
+        self._avisar_atajo(clave)
+
+    def _avisar_atajo(self, clave: tuple[str, str]) -> None:
+        modo = self.estado.atajos.aviso
+        if modo == "sonido":
+            try:
+                import winsound
+
+                winsound.MessageBeep(winsound.MB_OK)
+            except (ImportError, RuntimeError):
+                pass
+        elif modo == "notificacion" and self.bandeja is not None:
+            self.bandeja.avisar(atajos.Atajos.etiqueta(clave), f"Perfil activo: {self.estado.activo}")
+
+    def _atender_emergencia(self) -> None:
+        """Hilo principal, tras ``Aplicador.emergencia()``: la interfaz se pone al día (Activo apagado) y se avisa siempre."""
+        self.estado.poner_activo(False)
+        if self.aplicador is not None:
+            self.aplicador.reanudar()
+        self._refrescar_todo()
+        texto = "EMERGENCIA: pantalla original. Vislumbra está desactivado; pulsa «Activo» para volver a aplicar."
+        self.panel.mensaje(texto, PELIGRO, 60)
+        if self.bandeja is not None:
+            self.bandeja.avisar("Emergencia", texto)
+
     # -- perfil automático por programa -----------------------------------------------------------------------------------------
     def _bucle_procesos(self) -> None:
         """Cada segundo mira qué programas asociados están abiertos (y en qué monitor está su ventana) y avisa solo
@@ -450,6 +555,9 @@ class App:
             except Exception as e:  # noqa: BLE001 - al cerrar no debe quedar nada a medias
                 print(f"Aviso: no se pudo {que}: {e}", file=sys.stderr)
 
+        if self._gestor is not None:
+            paso("parar los atajos", self._gestor.parar)
+            self._gestor = None
         self._parar_procesos.set()
         if self._hilo_procesos is not None:
             paso("esperar al hilo de procesos", lambda: self._hilo_procesos.join(2.0))

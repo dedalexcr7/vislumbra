@@ -5,15 +5,18 @@ Usan una ventana de Tk oculta, objetos del sistema con nombres aleatorios y la c
 (nunca el ``%APPDATA%`` real). La cola se procesa a mano con ``_procesar_cola`` (sin ``mainloop``).
 """
 
+import threading
 import time
 import uuid
 
 import pytest
 
 from vislumbra import app as app_mod
+from vislumbra import atajos, teclado
 from vislumbra import color, display, perfiles, tray
 from vislumbra.app import App
 from vislumbra.color import Ajuste
+from vislumbra.teclado import Resultado
 from vislumbra.perfiles import Configuracion, Perfil
 
 IDENTIDAD = color.rampa_identidad()
@@ -77,6 +80,42 @@ class ArranqueFalso:
         self.activado = False
 
 
+class GestorFalso:
+    """Atajos globales simulados: nunca registran combinaciones de verdad."""
+
+    def __init__(self, al_atajo):
+        self.al_atajo = al_atajo
+        self.mapa: dict = {}
+        self.aplicaciones = 0
+        self.fallan: set = set()
+        self.parado = False
+        self.iniciado = False
+
+    def iniciar(self):
+        self.iniciado = True
+
+    def aplicar(self, mapa, espera=2.0):
+        self.mapa = dict(mapa)
+        self.aplicaciones += 1
+        return {k: (Resultado(False, 1409) if k in self.fallan else Resultado(True)) for k in mapa}
+
+    def pausar(self, espera=2.0):
+        pass
+
+    def reanudar(self, espera=2.0):
+        return {}
+
+    def probar(self, comb, espera=2.0):
+        return Resultado(True)
+
+    def parar(self, espera=2.0):
+        self.parado = True
+
+    def pulsar(self, clave):
+        """Lo que haría el hilo de atajos de Windows al pulsar la combinación."""
+        self.al_atajo(clave)
+
+
 class Entorno:
     """Todo lo que hace falta para probar una ``App``."""
 
@@ -91,6 +130,7 @@ class Entorno:
         self.ventana = ventana
         self.apps: list[App] = []
         self.arranque = ArranqueFalso()
+        self.gestores: list[GestorFalso] = []
         self.procesos: frozenset[str] = frozenset()
         self.ventanas: dict[str, str] = {}
 
@@ -106,13 +146,22 @@ class Entorno:
     def leer(self, m):
         return list(self.sesion.pantalla[m.numero])
 
+    def crear_gestor(self, al_atajo):
+        g = GestorFalso(al_atajo)
+        self.gestores.append(g)
+        return g
+
+    @property
+    def gestor(self):
+        return self.gestores[-1]
+
     def nueva(self, ventana=None, oculto=False):
         a = App(
             raiz=ventana or self.ventana, ruta_config=self.ruta_config, ruta_peticion_=self.ruta_peticion,
             listar=lambda: list(self.ms), leer=self.leer, crear_sesion=self.crear_sesion,
             prefijo_sistema=self.prefijo, con_bandeja=False, intervalo_vigilancia=0.05,
             oculto=oculto, arranque=self.arranque, leer_procesos=lambda: self.procesos, leer_ventanas=lambda exes: {k: v for k, v in self.ventanas.items() if k in exes},
-            intervalo_procesos=0.05,
+            intervalo_procesos=0.05, crear_gestor=self.crear_gestor,
         )
         self.apps.append(a)
         return a
@@ -756,3 +805,262 @@ def test_un_programa_que_cambia_de_monitor_se_detecta_por_el_hilo(entorno):
     assert procesar(a, lambda: a.estado.perfil_de_monitor(3).nombre == "Oscuro")
     entorno.ventanas = {"juego.exe": r"\\.\PRUEBA1"}
     assert procesar(a, lambda: a.estado.perfil_de_monitor(1).nombre == "Oscuro")
+
+
+# --- Atajos de teclado globales ------------------------------------------------------------------------------------------------
+def pulsar(a, entorno, clave):
+    """Un atajo: el hilo de atajos avisa y la interfaz lo atiende."""
+    entorno.gestor.pulsar(clave)
+    procesar(a)
+
+
+def test_al_arrancar_se_registran_los_atajos_por_defecto(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    g = entorno.gestor
+    assert g.iniciado and g.aplicaciones == 1
+    assert {k: c.texto() for k, c in g.mapa.items()} == {
+        ("accion", "siguiente"): "Ctrl+Alt+P", ("accion", "anterior"): "Ctrl+Alt+Shift+P", ("accion", "comparar"): "Ctrl+Alt+B",
+        ("accion", "activo"): "Ctrl+Alt+V", ("accion", "panel"): "Ctrl+Alt+Shift+V", ("accion", "emergencia"): "Ctrl+Alt+0",
+    }
+    assert a.gestor_atajos is g and "en uso" not in a.panel.lbl_aviso.cget("text")
+
+
+def test_siguiente_y_anterior_perfil(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    pulsar(a, entorno, ("accion", "siguiente"))
+    assert a.estado.activo == "Código"
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_CODIGO)
+    pulsar(a, entorno, ("accion", "anterior"))
+    assert a.estado.activo == "Oscuro" and esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    pulsar(a, entorno, ("accion", "anterior"))
+    assert a.estado.activo == "Normal"
+    assert perfiles.cargar(entorno.ruta_config)[0].perfil_activo == "Normal"  # como el menú de la bandeja: se guarda
+
+
+def test_comparar_activo_y_panel(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    pulsar(a, entorno, ("accion", "comparar"))
+    assert a.estado.ab and esperar(lambda: entorno.sesion.pantalla[1] == IDENTIDAD)
+    pulsar(a, entorno, ("accion", "comparar"))
+    assert not a.estado.ab and esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    pulsar(a, entorno, ("accion", "activo"))
+    assert not a.estado.activo_on and esperar(lambda: entorno.sesion.pantalla[1] == IDENTIDAD)
+    pulsar(a, entorno, ("accion", "activo"))
+    assert a.estado.activo_on
+    visible = a.panel.visible
+    pulsar(a, entorno, ("accion", "panel"))
+    assert a.panel.visible is (not visible)
+
+
+def test_el_atajo_de_modo_preciso(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert not a.estado.preciso
+    pulsar(a, entorno, ("accion", "preciso"))
+    assert a.estado.preciso and a.panel.var_preciso.get() and all(d.preciso for d in a.panel.deslizadores.values())
+    pulsar(a, entorno, ("accion", "preciso"))
+    assert not a.estado.preciso
+
+
+def test_un_atajo_de_perfil_y_con_activo_apagado_reactiva_la_aplicacion(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.estado.asignar_atajo(("perfil", "Código"), atajos.parsear("Ctrl+Alt+2"))
+    a.persistir()
+    assert ("perfil", "Código") in entorno.gestor.mapa  # se registró al cambiar los atajos
+    pulsar(a, entorno, ("accion", "activo"))
+    assert not a.estado.activo_on
+    pulsar(a, entorno, ("perfil", "Código"))
+    assert a.estado.activo == "Código" and a.estado.activo_on
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_CODIGO)
+
+
+def test_un_atajo_de_perfil_cambia_a_normal_tambien(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.estado.asignar_atajo(("perfil", "Normal"), atajos.parsear("Ctrl+Alt+1"))
+    a.persistir()
+    pulsar(a, entorno, ("perfil", "Normal"))
+    assert a.estado.activo == "Normal" and esperar(lambda: entorno.sesion.pantalla[1] == IDENTIDAD)
+
+
+def test_la_emergencia_suelta_la_pantalla_sin_esperar_a_la_interfaz(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    t = threading.Thread(target=entorno.gestor.pulsar, args=(("accion", "emergencia"),))  # desde el hilo de atajos
+    t.start()
+    t.join(5)
+    # La cola de Tk NO se ha procesado todavía: la pantalla ya está suelta.
+    assert all(entorno.sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3))
+    assert a.estado.activo_on and a.aplicador.en_emergencia
+    procesar(a)
+    assert not a.estado.activo_on and not a.aplicador.en_emergencia
+    assert "EMERGENCIA" in a.panel.lbl_aviso.cget("text") and a.panel.var_on.get() is False
+    time.sleep(0.4)
+    assert all(entorno.sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3))  # y no se reaplica
+
+
+def test_despues_de_la_emergencia_se_puede_volver_a_activar(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    entorno.gestor.pulsar(("accion", "emergencia"))
+    procesar(a)
+    a._atender_bandeja(tray.ALTERNAR_ACTIVO, None)
+    assert a.estado.activo_on and esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+
+
+def test_la_emergencia_avisa_siempre_en_la_bandeja_aunque_el_aviso_de_atajos_este_apagado(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    avisos = []
+    a.bandeja = type("B", (), {"avisar": lambda s, t, m: avisos.append(t), "actualizar": lambda s: None, "detener": lambda s: None})()
+    assert a.estado.atajos.aviso == "ninguno"
+    entorno.gestor.pulsar(("accion", "emergencia"))
+    procesar(a)
+    assert "Emergencia" in avisos
+
+
+def test_los_atajos_que_otra_aplicacion_tiene_se_avisan_en_el_panel_y_en_la_bandeja(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    avisos = []
+    a.bandeja = type("B", (), {"avisar": lambda s, t, m: avisos.append((t, m)), "actualizar": lambda s: None, "detener": lambda s: None})()
+    entorno.gestor.fallan = {("accion", "siguiente"), ("accion", "emergencia")}
+    a._registrar_atajos(forzar=True)
+    texto = a.panel.lbl_aviso.cget("text")
+    assert "Siguiente perfil (Ctrl+Alt+P)" in texto and "Emergencia" in texto and "otra aplicación" in texto
+    assert avisos and avisos[0][0] == "Atajo de emergencia no disponible" and "Ctrl+Alt+0" in avisos[0][1]
+    assert not a.resultados_atajos[("accion", "siguiente")].ok and a.resultados_atajos[("accion", "comparar")].ok
+
+
+def test_un_atajo_en_uso_no_impide_arrancar(ventana, tmp_path):
+    e = Entorno(ventana, tmp_path, conf=configuracion())
+    try:
+        a = e.nueva()
+        original = e.crear_gestor
+
+        def con_fallos(al_atajo):
+            g = original(al_atajo)
+            g.fallan = {("accion", "comparar")}
+            return g
+
+        a._crear_gestor = con_fallos
+        assert a.iniciar() is True
+        assert "Comparar (A/B)" in a.panel.lbl_aviso.cget("text") and a.aplicador.vivo
+    finally:
+        e.cerrar()
+
+
+def test_sin_gestor_de_atajos_la_app_sigue_funcionando(ventana, tmp_path):
+    e = Entorno(ventana, tmp_path, conf=configuracion())
+    try:
+        a = e.nueva()
+
+        def mal(al_atajo):
+            raise teclado.ErrorTeclado("no arrancó")
+
+        a._crear_gestor = mal
+        assert a.iniciar() is True and a.gestor_atajos is None
+        assert "no están disponibles" in a.panel.lbl_aviso.cget("text")
+        a.persistir()  # sin gestor: no falla
+    finally:
+        e.cerrar()
+
+
+def test_el_aviso_de_notificacion_y_de_sonido(entorno, monkeypatch):
+    import winsound
+
+    a = entorno.nueva()
+    a.iniciar()
+    avisos, pitidos = [], []
+    a.bandeja = type("B", (), {"avisar": lambda s, t, m: avisos.append((t, m)), "actualizar": lambda s: None, "detener": lambda s: None})()
+    monkeypatch.setattr(winsound, "MessageBeep", lambda *x: pitidos.append(x))
+    pulsar(a, entorno, ("accion", "siguiente"))
+    assert avisos == [] and pitidos == []  # por defecto: ninguno
+    a.estado.poner_aviso_atajos("notificacion")
+    pulsar(a, entorno, ("accion", "siguiente"))
+    assert avisos == [("Siguiente perfil", "Perfil activo: Normal")]
+    a.estado.poner_aviso_atajos("sonido")
+    pulsar(a, entorno, ("accion", "siguiente"))
+    assert len(pitidos) == 1 and len(avisos) == 1
+
+
+def test_persistir_solo_vuelve_a_registrar_si_cambiaron_los_atajos(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    g = entorno.gestor
+    a.persistir()
+    a.persistir()
+    assert g.aplicaciones == 1
+    a.estado.asignar_atajo(("accion", "preciso"), atajos.parsear("Ctrl+Alt+M"))
+    a.persistir()
+    assert g.aplicaciones == 2 and ("accion", "preciso") in g.mapa
+    a.estado.asignar_atajo(("accion", "preciso"), None)
+    a.persistir()
+    assert g.aplicaciones == 3 and ("accion", "preciso") not in g.mapa
+
+
+def test_renombrar_o_borrar_un_perfil_con_atajo_actualiza_lo_registrado(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.estado.asignar_atajo(("perfil", "Oscuro"), atajos.parsear("Ctrl+Alt+2"))
+    a.persistir()
+    a.estado.cambiar_activo("Oscuro")
+    a.estado.mirar(2)
+    a.estado.renombrar("Noche")
+    a.persistir()
+    assert ("perfil", "Noche") in entorno.gestor.mapa and ("perfil", "Oscuro") not in entorno.gestor.mapa
+    a.estado.borrar()
+    a.persistir()
+    assert ("perfil", "Noche") not in entorno.gestor.mapa
+
+
+def test_los_atajos_se_guardan_en_la_configuracion_y_se_leen_al_arrancar(ventana, tmp_path):
+    conf = configuracion()
+    conf.atajos.asignar_accion("preciso", atajos.parsear("Ctrl+Alt+M"))
+    conf.atajos.asignar_perfil("Código", atajos.parsear("Ctrl+Alt+2"))
+    e = Entorno(ventana, tmp_path, conf=conf)
+    try:
+        a = e.nueva()
+        a.iniciar()
+        assert ("accion", "preciso") in e.gestor.mapa and ("perfil", "Código") in e.gestor.mapa
+    finally:
+        e.cerrar()
+
+
+def test_un_atajo_malo_en_el_archivo_se_avisa_al_arrancar(ventana, tmp_path):
+    import json
+
+    e = Entorno(ventana, tmp_path, conf=configuracion())
+    datos = json.loads(e.ruta_config.read_text(encoding="utf-8"))
+    datos["atajos"]["acciones"]["siguiente"] = "Shift+P"
+    e.ruta_config.write_text(json.dumps(datos), encoding="utf-8")
+    try:
+        a = e.nueva()
+        a.iniciar()
+        assert len(a.avisos_arranque) == 1 and "Mayús sola" in a.avisos_arranque[0]
+        assert ("accion", "siguiente") not in e.gestor.mapa and a.estado.activo == "Oscuro"
+    finally:
+        e.cerrar()
+
+
+def test_al_cerrar_se_paran_los_atajos(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    g = entorno.gestor
+    a._parar_todo()
+    assert g.parado and a.gestor_atajos is None
+
+
+def test_la_bandeja_abre_el_dialogo_de_atajos(entorno):
+    a = entorno.nueva(oculto=True)
+    a.iniciar()
+    llamadas = []
+    a.panel.abrir_dialogo_atajos = lambda *args: llamadas.append(args)
+    a._atender_bandeja(tray.ATAJOS, None)
+    assert a.panel.visible and len(llamadas) == 1 and llamadas[0][1] is a.estado and llamadas[0][2] is entorno.gestor
+    assert llamadas[0][3] == a.panel.ctl.persistir

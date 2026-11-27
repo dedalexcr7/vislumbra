@@ -352,6 +352,7 @@ class Panel:
         self.preguntar_guardar: Callable[[], bool | None] = self._preguntar_guardar
         self.procesos_abiertos: Callable[[], list[str]] = procesos.nombres_ordenados
         self.abrir_dialogo_programas = dialogos.programas  # las pruebas lo sustituyen
+        self.abrir_dialogo_atajos = lambda *args: dialogos.atajos(*args)  # las pruebas lo sustituyen
         self._mensaje: tuple[str, str, float] | None = None  # (texto, color, hasta)
         self._colocada = False
         self._arrastre_ini: tuple[int, int, int, int] | None = None
@@ -548,6 +549,12 @@ class Panel:
     def abrir_programas(self) -> None:
         """Diálogo de programas asociados a perfiles (también desde el menú de la bandeja)."""
         self.abrir_dialogo_programas(self.raiz, self.estado, self.procesos_abiertos, self.ctl.persistir)
+        self.refrescar()
+
+    def abrir_atajos(self) -> None:
+        """Diálogo «Atajos…» (también desde el menú de la bandeja)."""
+        guardar = getattr(self.ctl, "persistir")  # al cambiar los atajos se guarda y se vuelven a registrar
+        self.abrir_dialogo_atajos(self.raiz, self.estado, getattr(self.ctl, "gestor_atajos", None), guardar)
         self.refrescar()
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------
@@ -883,6 +890,11 @@ class Panel:
     def _mantener(self) -> None:
         self.estado.mantener()
         self._refrescar_confirmaciones()
+
+    def alternar_preciso(self) -> None:
+        """Activa o desactiva el modo preciso (como la casilla; lo usa el atajo)."""
+        self.var_preciso.set(not self.var_preciso.get())
+        self._preciso_cambiado()
 
     def _preciso_cambiado(self) -> None:
         self.estado.preciso = self.var_preciso.get()

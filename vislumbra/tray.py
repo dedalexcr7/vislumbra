@@ -30,6 +30,7 @@ SIGUIENTE = "siguiente"
 COMPARAR = "comparar"
 ARRANQUE = "arranque"
 PROGRAMAS = "programas"
+ATAJOS = "atajos"
 SALIR = "salir"
 
 
@@ -72,6 +73,7 @@ def construir_menu(info: InfoBandeja) -> list[ItemMenu]:
         SEPARADOR,
         ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
         ItemMenu("Programas…", PROGRAMAS),
+        ItemMenu("Atajos…", ATAJOS),
         ItemMenu("Iniciar con Windows", ARRANQUE, marcado=info.arranque),
         ItemMenu("Salir (restaura la pantalla)", SALIR),
     ]
