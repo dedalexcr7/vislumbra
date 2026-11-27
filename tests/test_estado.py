@@ -8,7 +8,7 @@ import pytest
 from vislumbra import color
 from vislumbra.color import Ajuste, AjusteCanal
 from vislumbra.estado import SEGUNDOS_CONFIRMACION, Estado
-from vislumbra.perfiles import NORMAL, Configuracion, ErrorPerfil, Perfil
+from vislumbra.perfiles import NORMAL, Configuracion, ErrorPerfil, Perfil, PerfilNoEncontrado
 
 
 @dataclass(frozen=True)
@@ -438,3 +438,103 @@ def test_un_monitor_nuevo_sigue_al_perfil_activo():
 def test_valores_devuelve_los_cuatro_parametros():
     est = con_oscuro_activo()
     assert est.valores() == {"brillo": 0.0, "contraste": 7.5, "gamma": 1.7, "temperatura": 6500.0}
+
+
+# --- Perfil automático por programa --------------------------------------------------------------------------------
+def con_programas():
+    est = con_oscuro_activo()
+    est.asociar_programa("juego.exe", "Código")
+    est.asociar_programa(r"D:\Games\Otro.exe", "Normal")
+    return est
+
+
+def test_asociar_y_quitar_programas():
+    est = con_programas()
+    assert est.exes_vigilados() == {"juego.exe", "otro.exe"}
+    assert est.perfil_de_programa("juego.exe") == "Código" and est.perfil_de_programa("nada.exe") is None
+    est.quitar_programa("JUEGO")
+    assert est.exes_vigilados() == {"otro.exe"}
+    with pytest.raises(ErrorPerfil):
+        est.asociar_programa("x.bat", "Oscuro")
+    with pytest.raises(PerfilNoEncontrado):
+        est.asociar_programa("x.exe", "Nada")
+
+
+def test_al_abrirse_el_programa_se_activa_su_perfil_y_al_cerrarse_vuelve_el_de_antes():
+    est = con_programas()
+    assert est.set_automatico("Código") is True and est.activo == "Código" and est.automatico
+    assert est.perfil_de_monitor(1).nombre == "Código"
+    assert est.set_automatico(None) is True and est.activo == "Oscuro" and not est.automatico
+    assert est.set_automatico(None) is False  # sin programa y sin automático: nada
+
+
+def test_el_perfil_automatico_no_se_guarda_como_el_activo_del_usuario():
+    est = con_programas()
+    est.set_automatico("Código")
+    assert est.conf_persistible().perfil_activo == "Oscuro"  # si el PC se apaga en mitad del juego
+    assert [a.exe for a in est.conf_persistible().programas] == ["juego.exe", "otro.exe"]
+
+
+def test_si_el_usuario_cambia_de_perfil_durante_el_programa_se_respeta_al_cerrarlo():
+    est = con_programas()
+    est.set_automatico("Código")
+    est.cambiar_activo("Normal")  # a mano
+    assert est.conf_persistible().perfil_activo == "Normal"
+    assert est.set_automatico(None) is False and est.activo == "Normal" and not est.automatico
+
+
+def test_dos_programas_a_la_vez_el_segundo_manda_y_al_cerrarlo_vuelve_el_primero():
+    est = con_programas()
+    est.set_automatico("Código")
+    est.set_automatico("Normal")  # se abrió otro programa asociado a Normal
+    assert est.activo == "Normal"
+    est.set_automatico("Código")  # se cerró el segundo: manda el primero otra vez
+    assert est.activo == "Código"
+    est.set_automatico(None)
+    assert est.activo == "Oscuro"  # el de antes de todo
+
+
+def test_cambio_a_mano_y_luego_otro_programa_toma_la_eleccion_manual_como_la_de_antes():
+    est = con_programas()
+    est.set_automatico("Código")
+    est.cambiar_activo("Oscuro")
+    est.set_automatico("Normal")
+    est.set_automatico(None)
+    assert est.activo == "Oscuro"
+
+
+def test_con_perfil_inexistente_no_hace_nada():
+    est = con_oscuro_activo()
+    assert est.set_automatico("NoExiste") is False and not est.automatico and est.activo == "Oscuro"
+
+
+def test_si_el_perfil_de_antes_se_borro_mientras_tanto_se_vuelve_a_normal():
+    est = con_programas()
+    est.set_automatico("Código")
+    est.cambiar_activo("Oscuro")
+    est.borrar()  # se borra «Oscuro» (el de antes) estando editado
+    est.cambiar_activo("Código")
+    est._auto.aplicado = "Código"
+    est.set_automatico(None)
+    assert est.activo == "Normal"
+
+
+def test_renombrar_y_borrar_un_perfil_arregla_los_programas_y_el_automatico():
+    est = con_programas()
+    est.set_automatico("Código")
+    est.mirar(2)
+    est.renombrar("Programar")  # «Código» es el que se ve (activo automático)
+    assert est.activo == "Programar" and est.perfil_de_programa("juego.exe") == "Programar"
+    est.set_automatico(None)
+    assert est.activo == "Oscuro"
+    est.cambiar_activo("Programar")
+    est.borrar()
+    assert est.perfil_de_programa("juego.exe") is None and est.exes_vigilados() == {"otro.exe"}
+
+
+def test_los_programas_con_perfiles_sin_guardar_no_se_persisten(e):
+    e.mover("gamma", 1.4)  # «Perfil 1», sin guardar
+    e.asociar_programa("juego.exe", "Perfil 1")
+    assert e.conf_persistible().programas == []
+    e.guardar()
+    assert [a.exe for a in e.conf_persistible().programas] == ["juego.exe"]

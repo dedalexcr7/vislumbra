@@ -24,6 +24,7 @@ from pathlib import Path
 
 from . import color
 from .color import Ajuste, AjusteCanal
+from .programas import Asociacion, ErrorPrograma, normalizar_exe
 
 NORMAL = "Normal"
 VERSION = 1
@@ -123,11 +124,12 @@ def _perfil_de_json(d) -> Perfil:
 
 @dataclass
 class Configuracion:
-    """Perfiles del usuario (sin Normal), perfil activo y asignación por monitor."""
+    """Perfiles del usuario (sin Normal), perfil activo, asignación por monitor y programas asociados."""
 
     perfiles: list[Perfil] = field(default_factory=list)
     perfil_activo: str = NORMAL
     monitores: dict[str, str | None] = field(default_factory=dict)  # clave -> None (activo) o nombre fijo
+    programas: list[Asociacion] = field(default_factory=list)  # programa (.exe) -> perfil que se activa solo
 
     # -- consulta
     def todos(self) -> list[Perfil]:
@@ -207,6 +209,9 @@ class Configuracion:
             k: (limpio if v is not None and _clave(v) == _clave(actual.nombre) else v)
             for k, v in self.monitores.items()
         }
+        self.programas = [
+            replace(a, perfil=limpio) if _clave(a.perfil) == _clave(actual.nombre) else a for a in self.programas
+        ]
         return limpio
 
     def borrar(self, nombre: str) -> None:
@@ -221,6 +226,7 @@ class Configuracion:
             k: (None if v is not None and _clave(v) == _clave(actual.nombre) else v)
             for k, v in self.monitores.items()
         }
+        self.programas = [a for a in self.programas if _clave(a.perfil) != _clave(actual.nombre)]
 
     def activar(self, nombre: str) -> Perfil:
         perfil = self.obtener(nombre)
@@ -232,6 +238,23 @@ class Configuracion:
         nombres = self.nombres()
         i = next((i for i, n in enumerate(nombres) if _clave(n) == _clave(self.perfil_activo)), -1)
         return self.activar(nombres[(i + 1) % len(nombres)])
+
+    def asociar(self, exe: str, perfil: str) -> Asociacion:
+        """Asocia un programa a un perfil (reemplaza la asociación anterior de ese programa)."""
+        try:
+            e = normalizar_exe(exe)
+        except ErrorPrograma as err:
+            raise ErrorPerfil(str(err)) from None
+        nueva = Asociacion(e, self.obtener(perfil).nombre)
+        self.programas = [a for a in self.programas if a.exe != e] + [nueva]
+        return nueva
+
+    def desasociar(self, exe: str) -> None:
+        try:
+            e = normalizar_exe(exe)
+        except ErrorPrograma as err:
+            raise ErrorPerfil(str(err)) from None
+        self.programas = [a for a in self.programas if a.exe != e]
 
     def asignar(self, clave: str, perfil_fijo: str | None) -> None:
         """``None``: el monitor sigue al perfil activo; si no, queda fijo a ese perfil."""
@@ -246,6 +269,7 @@ class Configuracion:
             "version": VERSION,
             "perfiles": [_perfil_a_json(p) for p in self.perfiles],
             "perfil_activo": self.perfil_activo,
+            "programas": [{"exe": a.exe, "perfil": a.perfil} for a in self.programas],
             "monitores": {
                 k: ({"asignacion": ASIGNACION_ACTIVO} if v is None
                     else {"asignacion": ASIGNACION_FIJO, "perfil": v})
@@ -280,6 +304,19 @@ class Configuracion:
             fijo = d.get("perfil") if d.get("asignacion") == ASIGNACION_FIJO else None
             # Un perfil fijo que ya no existe se trata como «sigue al activo».
             conf.monitores[str(clave)] = conf.obtener(fijo).nombre if isinstance(fijo, str) and conf.existe(fijo) else None
+        lista_programas = datos.get("programas", [])
+        if not isinstance(lista_programas, list):
+            raise ErrorPerfil("la lista de programas no tiene el formato esperado.")
+        for d in lista_programas:
+            if not isinstance(d, dict) or not isinstance(d.get("exe"), str) or not isinstance(d.get("perfil"), str):
+                raise ErrorPerfil("la asociación de un programa no tiene el formato esperado.")
+            try:
+                exe = normalizar_exe(d["exe"])
+            except ErrorPrograma as err:
+                raise ErrorPerfil(str(err)) from None
+            # Un perfil que ya no existe o un programa repetido se ignoran (no hacen dañado el archivo).
+            if conf.existe(d["perfil"]) and not any(a.exe == exe for a in conf.programas):
+                conf.programas.append(Asociacion(exe, conf.obtener(d["perfil"]).nombre))
         return conf
 
 

@@ -23,6 +23,7 @@ from typing import Protocol
 from . import color, escala
 from .color import Ajuste, ErrorColor, Rampa
 from .perfiles import NORMAL, Configuracion, ErrorPerfil, Perfil, PerfilNoEncontrado, _clave
+from .programas import Asociacion, ErrorPrograma, normalizar_exe
 
 SEGUNDOS_CONFIRMACION = 10.0
 UMBRAL_FUERTE = 0.40 * color.MAXIMO  # desviación de la identidad a partir de la cual el ajuste es «fuerte»
@@ -50,6 +51,14 @@ class _Pendiente:
     limite: float
 
 
+@dataclass
+class _Automatico:
+    """Perfil activado solo por un programa: el que había antes y el que se puso."""
+
+    antes: str
+    aplicado: str
+
+
 @dataclass(frozen=True)
 class Pestana:
     numero: int
@@ -64,6 +73,8 @@ class Estado:
         self.monitores = list(monitores)
         self.activo: str = conf.perfil_activo
         self._fijos: dict[str, str | None] = dict(conf.monitores)
+        self.programas: list[Asociacion] = list(conf.programas)  # programa -> perfil que se activa solo
+        self._auto: _Automatico | None = None
         self._trabajo: dict[str, Perfil] = {}  # copias con cambios sin guardar, por nombre
         self._nuevos: list[str] = []  # claves de perfiles creados y aún sin guardar (en orden)
         self.mirado: int = self._monitor_inicial()
@@ -206,12 +217,85 @@ class Estado:
             self.activo = nuevo
 
     def _sustituir_referencias(self, viejo: str, nuevo: str | None) -> None:
-        """Cambia ``viejo`` por ``nuevo`` en el activo y en los monitores fijos (``None``: Normal / activo)."""
+        """Cambia ``viejo`` por ``nuevo`` en el activo, los monitores fijos y los programas (``None``: Normal / activo / quitar)."""
         if _clave(self.activo) == _clave(viejo):
             self.activo = nuevo or NORMAL
         for k, v in list(self._fijos.items()):
             if v is not None and _clave(v) == _clave(viejo):
                 self._fijos[k] = nuevo
+        nuevas = []
+        for a in self.programas:
+            if _clave(a.perfil) == _clave(viejo):
+                if nuevo is None:
+                    continue  # el perfil desapareció: se quita la asociación
+                a = replace(a, perfil=nuevo)
+            nuevas.append(a)
+        self.programas = nuevas
+        if self._auto is not None:
+            if _clave(self._auto.antes) == _clave(viejo):
+                self._auto.antes = nuevo or NORMAL
+            if _clave(self._auto.aplicado) == _clave(viejo):
+                self._auto.aplicado = nuevo or NORMAL
+
+    # -- programas: perfil automático ----------------------------------------------------------------------------
+    def asociar_programa(self, exe: str, nombre: str) -> str:
+        """Asocia un programa a un perfil; devuelve el nombre normalizado del programa."""
+        try:
+            normal = normalizar_exe(exe)
+        except ErrorPrograma as err:
+            raise ErrorPerfil(str(err)) from None
+        if not self._existe(nombre):
+            raise PerfilNoEncontrado(f"el perfil «{nombre}» no existe.")
+        self.programas = [a for a in self.programas if a.exe != normal] + [Asociacion(normal, self._perfil(nombre).nombre)]
+        return normal
+
+    def quitar_programa(self, exe: str) -> None:
+        try:
+            normal = normalizar_exe(exe)
+        except ErrorPrograma as err:
+            raise ErrorPerfil(str(err)) from None
+        self.programas = [a for a in self.programas if a.exe != normal]
+
+    def exes_vigilados(self) -> frozenset[str]:
+        return frozenset(a.exe for a in self.programas)
+
+    def perfil_de_programa(self, exe: str) -> str | None:
+        a = next((a for a in self.programas if a.exe == exe), None)
+        return a.perfil if a is not None and self._existe(a.perfil) else None
+
+    @property
+    def automatico(self) -> bool:
+        """¿El perfil activo lo puso un programa?"""
+        return self._auto is not None
+
+    def set_automatico(self, nombre: str | None) -> bool:
+        """Un programa asociado se abrió (``nombre``) o ya no queda ninguno (``None``).
+
+        El perfil automático no se guarda como el activo del usuario. Si el usuario cambia de perfil a mano
+        mientras el programa está abierto, su elección se respeta al cerrarlo. Devuelve ``True`` si cambió el activo.
+        """
+        if nombre is None:
+            if self._auto is None:
+                return False
+            auto, self._auto = self._auto, None
+            if _clave(self.activo) != _clave(auto.aplicado):  # lo cambió a mano: se queda como está
+                return False
+            antes = auto.antes if self._existe(auto.antes) else NORMAL
+            cambio = _clave(self.activo) != _clave(antes)
+            self.activo = self._perfil(antes).nombre
+            return cambio
+        if not self._existe(nombre):
+            return False
+        destino = self._perfil(nombre).nombre
+        if self._auto is None:
+            self._auto = _Automatico(antes=self.activo, aplicado=destino)
+        else:
+            if _clave(self.activo) != _clave(self._auto.aplicado):  # cambió a mano durante el programa anterior
+                self._auto.antes = self.activo
+            self._auto.aplicado = destino
+        cambio = _clave(self.activo) != _clave(destino)
+        self.activo = destino
+        return cambio
 
     # -- editar -----------------------------------------------------------------------------------
     def valor(self, parametro: str) -> float:
@@ -483,8 +567,12 @@ class Estado:
         Lo que apunte a un perfil sin guardar se escribe como Normal / «sigue al activo».
         """
         guardado = lambda n: n is not None and self.conf.existe(n)  # noqa: E731
+        activo = self.activo
+        if self._auto is not None and _clave(activo) == _clave(self._auto.aplicado):
+            activo = self._auto.antes  # el perfil que puso un programa no es el del usuario: no se guarda
         return Configuracion(
             perfiles=list(self.conf.perfiles),
-            perfil_activo=self.activo if guardado(self.activo) else NORMAL,
+            perfil_activo=activo if guardado(activo) else NORMAL,
             monitores={k: (v if guardado(v) else None) for k, v in self._fijos.items()},
+            programas=[a for a in self.programas if guardado(a.perfil)],
         )

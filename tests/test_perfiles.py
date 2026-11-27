@@ -247,3 +247,67 @@ def test_la_carpeta_por_defecto_es_appdata(monkeypatch, tmp_path):
     assert not (tmp_path / "Vislumbra").exists()  # no se crea hasta guardar
     monkeypatch.delenv("APPDATA")
     assert perfiles.ruta_config().parts[-2:] == ("Vislumbra", "config.json")
+
+
+# --- Programas asociados ------------------------------------------------------------------------------------
+def test_asociar_normaliza_el_programa_y_reemplaza_el_anterior(conf):
+    a = conf.asociar(r"C:\Juegos\Juego.EXE", "oscuro")
+    assert a.exe == "juego.exe" and a.perfil == "Oscuro"
+    conf.asociar("juego", "Código")
+    assert [(x.exe, x.perfil) for x in conf.programas] == [("juego.exe", "Código")]
+    with pytest.raises(PerfilNoEncontrado):
+        conf.asociar("otro.exe", "Nada")
+    with pytest.raises(ErrorPerfil, match=".exe"):
+        conf.asociar("juego.bat", "Oscuro")
+    conf.desasociar("JUEGO.exe")
+    assert conf.programas == []
+
+
+def test_renombrar_y_borrar_arreglan_los_programas(conf):
+    conf.asociar("a.exe", "Oscuro")
+    conf.asociar("b.exe", "Código")
+    conf.renombrar("Oscuro", "Noche")
+    assert {x.exe: x.perfil for x in conf.programas} == {"a.exe": "Noche", "b.exe": "Código"}
+    conf.borrar("Código")
+    assert {x.exe: x.perfil for x in conf.programas} == {"a.exe": "Noche"}
+
+
+def test_los_programas_se_guardan_y_leen_de_ida_y_vuelta(tmp_path, conf):
+    conf.asociar("juego.exe", "Oscuro")
+    conf.asociar("otro.exe", "Normal")
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    leida, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and leida.programas == conf.programas
+    assert json.loads(ruta.read_text(encoding="utf-8"))["version"] == 1  # el formato no cambia de versión
+
+
+def test_un_archivo_sin_programas_se_lee_igual_que_antes(tmp_path, conf):
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    datos.pop("programas")
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    leida, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and leida.programas == []
+
+
+def test_programas_con_datos_malos(tmp_path):
+    base = _perfil_json()
+    for malo in (["no es un dict"], [{"exe": 5, "perfil": "P"}], [{"exe": "x.bat", "perfil": "P"}], "texto"):
+        ruta = tmp_path / "c.json"
+        ruta.write_text(json.dumps({**base, "programas": malo}), encoding="utf-8")
+        conf, avisos = perfiles.cargar(ruta)
+        assert len(avisos) == 1 and conf.nombres() == [NORMAL]  # archivo dañado: se aparta
+        for f in tmp_path.glob("config.da*"):
+            f.unlink()
+
+
+def test_programas_con_perfil_inexistente_o_repetidos_se_ignoran_sin_danar(tmp_path):
+    base = _perfil_json()
+    base["programas"] = [
+        {"exe": "a.exe", "perfil": "P"}, {"exe": "A.EXE", "perfil": "Normal"},
+        {"exe": "b.exe", "perfil": "Borrado"}, {"exe": r"C:\carpeta\c.exe", "perfil": "normal"},
+    ]
+    ruta = tmp_path / "c.json"
+    ruta.write_text(json.dumps(base), encoding="utf-8")
+    conf, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and [(x.exe, x.perfil) for x in conf.programas] == [("a.exe", "P"), ("c.exe", "Normal")]
