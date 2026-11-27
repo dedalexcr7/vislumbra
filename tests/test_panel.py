@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from vislumbra import color, escala, panel
+from vislumbra import color, escala, panel, widgets
 from vislumbra.panel import Deslizador, GraficoCurva
 
 IDENTIDAD = color.rampa_identidad()
@@ -485,3 +485,68 @@ def test_la_curva_y_el_margen_se_actualizan(montaje):
     assert "Margen de Windows" in antes and "de 50 %" in antes
     p.deslizadores["gamma"]._pedir(3.0)
     assert p.lbl_margen.cget("text") != antes
+
+
+# --- Aspecto de la maqueta ---------------------------------------------------------------------------------
+def test_la_ventana_no_tiene_barra_de_titulo_y_se_arrastra_desde_la_cabecera(montaje):
+    p, *_ = montaje
+    assert p.raiz.overrideredirect()  # sin barra de Windows: tampoco hay botón en la barra de tareas
+    p.raiz.winfo_x, p.raiz.winfo_y = lambda: 100, lambda: 100  # la ventana está oculta: se fija la posición a mano
+    p._arrastre_inicio(SimpleNamespace(x_root=300, y_root=200))
+    p._arrastre_mover(SimpleNamespace(x_root=340, y_root=230))
+    assert p.raiz.geometry().endswith("+140+130")
+
+
+def test_la_pildora_de_activo_y_el_boton_ab_cambian_de_texto(montaje):
+    p, estado, *_ = montaje
+    con_oscuro(p, estado)
+    assert p.btn_on.cget("text") == "Activo" and p.btn_ab.cget("text") == "A/B: viendo el ajuste"
+    p._clic_activo()
+    assert not estado.activo_on and p.btn_on.cget("text") == "Desactivado"
+    p._clic_activo()
+    p._alternar_ab()
+    assert p.btn_ab.cget("text") == "A/B: viendo la pantalla normal"
+    p._alternar_ab()
+    assert p.btn_ab.cget("text") == "A/B: viendo el ajuste"
+
+
+def test_los_perfiles_fijos_se_eligen_con_botones_en_vez_de_un_desplegable(montaje):
+    p, estado, ctl, _ = montaje
+    con_oscuro(p, estado)
+    p._mirar(3)
+    assert not visible(p.marco_fijos)
+    p._clic_asignacion("fijo")
+    assert visible(p.marco_fijos) and estado.asignacion("m-3") == "Oscuro"
+    botones = [b for fila in p.marco_fijos.winfo_children() for b in fila.winfo_children()]
+    assert [b.cget("text") for b in botones] == ["Normal", "Oscuro", "Código"]
+    p._elegir_fijo("Código")
+    assert estado.asignacion("m-3") == "Código" and ctl.persistencias == 2
+
+
+def test_el_minimo_y_el_maximo_se_ven_siempre_bajo_cada_deslizador(montaje):
+    p, *_ = montaje
+    for nombre, d in p.deslizadores.items():
+        par = escala.PARAMETROS[nombre]
+        textos = [d.pista.itemcget(i, "text") for i in d.pista.find_all() if d.pista.type(i) == "text"]
+        assert textos == [escala.formatear(nombre, par.minimo, con_unidad=True), escala.formatear(nombre, par.maximo, con_unidad=True)]
+
+
+def test_la_temperatura_lleva_degradado_y_las_demas_pistas_no(montaje):
+    p, *_ = montaje
+    colores = lambda d: {d.pista.itemcget(i, "fill") for i in d.pista.find_all() if d.pista.type(i) == "line"}  # noqa: E731
+    assert len(colores(p.deslizadores["temperatura"])) > 10
+    assert len(colores(p.deslizadores["gamma"])) <= 3
+
+
+def test_la_curva_es_azul_cuando_los_canales_son_iguales(ventana):
+    g = GraficoCurva(ventana)
+    g.dibujar(IDENTIDAD)
+    lineas = [g.itemcget(i, "fill") for i in g.find_all() if g.type(i) == "line"]
+    assert widgets.CANAL["b"] in lineas
+    g.destroy()
+
+
+def test_el_color_del_margen_avisa_cerca_del_limite():
+    assert panel.color_margen(0.3) == widgets.ACENTO
+    assert panel.color_margen(0.85) == widgets.AVISO_MARGEN
+    assert panel.color_margen(0.97) == widgets.PELIGRO

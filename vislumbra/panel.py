@@ -3,7 +3,8 @@
 
 Solo el hilo principal toca Tk. La lógica está en ``estado.py``; aquí solo se dibuja y se
 traducen los gestos (arrastrar, rueda, flechas, doble clic, escribir un número) en llamadas
-al estado.
+al estado. El aspecto sigue la maqueta aprobada (``docs/diseno-panel-maqueta.md``); los
+elementos que Tk no dibuja (esquinas redondeadas, degradados) están en ``widgets.py``.
 """
 
 from __future__ import annotations
@@ -11,26 +12,18 @@ from __future__ import annotations
 import time
 import tkinter as tk
 from collections.abc import Callable, Sequence
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog
 from typing import Protocol
 
 from . import color, escala, sistema
 from .estado import Estado
 from .perfiles import ErrorPerfil
-
-# --- Tema oscuro (de la paleta del logo) --------------------------------------------------------
-BG = "#1d1f1b"
-SUPERFICIE = "#272a24"
-BORDE = "#3a3e35"
-TEXTO = "#e6e3d4"
-TEXTO_SUAVE = "#9a9c8d"
-ACENTO = "#c9b98a"
-OLIVA = "#8b8b68"
-AVISO = "#e0a15f"
-PELIGRO = "#d9694f"
-CANAL = {"r": "#e06c5f", "g": "#7fc27a", "b": "#6fa0e0"}
-FUENTE = ("Segoe UI", 9)
-FUENTE_NEGRITA = ("Segoe UI", 9, "bold")
+from .widgets import (  # noqa: F401  (AVISO, PELIGRO y TEXTO_SUAVE los importa app.py)
+    ACENTO, AVISO, AVISO_MARGEN, BORDE_BOTON, BORDE_VENTANA, BOTON, CABECERA, CAMPO, CANAL, DEGRADADO_TEMPERATURA,
+    FONDO_VENTANA, FUERTE_BORDE, FUERTE_FONDO, LINEA, MARCA_NEUTRO, OLIVA, PELIGRO, PESTANA, PESTANA_ACTIVA, PISTA, TEXTO,
+    TEXTO_SUAVE, VERDE, Boton, Casilla, Tarjeta, TextoMixto, degradado, dibujar_logo, fijar_escala, fuente,
+    nueva_posicion, px, rect_redondeado,
+)
 
 IDENTIDAD = color.rampa_identidad()
 LIMITE_WINDOWS = 50.0  # % de desviación de la identidad que Windows tolera (deducido en el test de la fase 1)
@@ -68,9 +61,14 @@ def canales_iguales(rampa: Sequence[int]) -> bool:
     return list(rampa[:n]) == list(rampa[n:2 * n]) == list(rampa[2 * n:])
 
 
+def color_margen(fraccion: float) -> str:
+    """Color de la barra de margen (de la maqueta: aviso desde el 40 % de desviación, peligro desde el 47 %)."""
+    return PELIGRO if fraccion > 0.94 else (AVISO_MARGEN if fraccion > 0.8 else ACENTO)
+
+
 # --- Deslizador fino ---------------------------------------------------------------------------------
 class Deslizador(tk.Frame):
-    """Etiqueta, pista, botones − y +, y campo numérico editable.
+    """Etiqueta, pista con mínimo y máximo, botones − y +, y campo numérico editable.
 
     Gestos: arrastrar (con Mayús, 10 veces más lento), doble clic (vuelve al neutro), rueda y
     flechas (paso fijo; Mayús = paso fino), escribir un número (coma o punto) y los botones.
@@ -81,10 +79,11 @@ class Deslizador(tk.Frame):
     """
 
     MARGEN = 10
-    ALTO = 28
+    ALTO = 46  # 32 de pista + 14 para el mínimo y el máximo
 
     def __init__(self, master, parametro: str, al_cambiar: Callable[[str, float], float | None]):
-        super().__init__(master, bg=BG)
+        super().__init__(master, bg=master.cget("bg"))
+        bg = self.cget("bg")
         self.parametro = parametro
         self.par = escala.PARAMETROS[parametro]
         self.al_cambiar = al_cambiar
@@ -93,21 +92,23 @@ class Deslizador(tk.Frame):
         self._centro = self.par.neutro
         self._ref: tuple[float, float] | None = None  # (posición del ratón, posición del valor) con Mayús
         self._arrastrando = False
+        self.columnconfigure(0, minsize=px(84))
         self.columnconfigure(1, weight=1)
 
-        tk.Label(self, text=self.par.etiqueta, width=11, anchor="w", bg=BG, fg=TEXTO, font=FUENTE).grid(row=0, column=0)
-        self.pista = tk.Canvas(self, height=self.ALTO, bg=BG, highlightthickness=0, takefocus=True, cursor="hand2")
-        self.pista.grid(row=0, column=1, sticky="ew", padx=4)
-        self._boton("−", -1).grid(row=0, column=2)
+        tk.Label(self, text=self.par.etiqueta, anchor="w", bg=bg, fg=TEXTO, font=fuente(13)).grid(row=0, column=0, sticky="nw", pady=(px(6), 0))
+        self.pista = tk.Canvas(self, width=px(100), height=px(self.ALTO), bg=bg, highlightthickness=0, takefocus=True, cursor="hand2")
+        self.pista.grid(row=0, column=1, sticky="ew", padx=px(8))
+        self._boton("−", -1).grid(row=0, column=2, sticky="n")
         self.texto = tk.StringVar()
+        self._marco_campo = tk.Canvas(self, width=px(72), height=px(32), bg=bg, highlightthickness=0)
+        self._marco_campo.grid(row=0, column=3, sticky="n", padx=px(8))
         self.campo = tk.Entry(
-            self, textvariable=self.texto, width=7, justify="right", bg=SUPERFICIE, fg=TEXTO,
-            insertbackground=TEXTO, relief="flat", highlightthickness=1, highlightbackground=BORDE,
-            highlightcolor=ACENTO, font=FUENTE,
+            self._marco_campo, textvariable=self.texto, justify="right", bg=CAMPO, fg=TEXTO, insertbackground=TEXTO,
+            relief="flat", bd=0, highlightthickness=0, font=fuente(13),
         )
-        self.campo.grid(row=0, column=3, padx=2)
-        self._boton("+", +1).grid(row=0, column=4)
-        tk.Label(self, text=self.par.unidad.strip(), width=2, anchor="w", bg=BG, fg=TEXTO_SUAVE, font=FUENTE).grid(row=0, column=5)
+        self._marco_campo.create_window(px(64), px(16), window=self.campo, anchor="e", width=px(56), height=px(20))
+        self._borde_campo(False)
+        self._boton("+", +1).grid(row=0, column=4, sticky="n")
 
         p = self.pista
         p.bind("<Configure>", lambda e: self._dibujar())
@@ -121,15 +122,20 @@ class Deslizador(tk.Frame):
             p.bind(tecla, lambda e, d=d: self._paso(d, bool(e.state & SHIFT)))
         self.campo.bind("<Return>", self._desde_texto)
         self.campo.bind("<FocusOut>", self._desde_texto)
+        self.campo.bind("<FocusIn>", lambda e: self._borde_campo(True), add="+")
+        self.campo.bind("<FocusOut>", lambda e: self._borde_campo(False), add="+")
+        self.campo.bind("<Button-1>", lambda e: self.campo.focus_force(), add="+")  # ventana sin borde: pide el foco
         self.campo.bind("<Escape>", lambda e: self._actualizar_texto())
         self.poner_valor(self.par.neutro)
 
-    def _boton(self, simbolo: str, d: int) -> tk.Button:
-        b = tk.Button(
-            self, text=simbolo, width=2, bg=SUPERFICIE, fg=TEXTO, activebackground=BORDE, activeforeground=TEXTO,
-            relief="flat", bd=0, font=FUENTE, takefocus=False, command=lambda: self._paso(d, False),
-        )
-        return b
+    def _boton(self, simbolo: str, d: int) -> Boton:
+        return Boton(self, simbolo, lambda: self._paso(d, False), alto=32, ancho=32, tam=16, relleno=0)
+
+    def _borde_campo(self, enfocado: bool) -> None:
+        c = self._marco_campo
+        c.delete("borde")
+        rect_redondeado(c, 0.5, 0.5, px(72) - 0.5, px(32) - 0.5, px(7), fill=CAMPO, outline=ACENTO if enfocado else BORDE_BOTON, tags="borde")
+        c.tag_lower("borde")
 
     # -- valor y posición ----------------------------------------------------------------------------------
     def poner_valor(self, valor: float) -> None:
@@ -156,7 +162,7 @@ class Deslizador(tk.Frame):
         return escala.redondear(self.parametro, escala.posicion_a_valor(self.parametro, p))
 
     def _actualizar_texto(self) -> None:
-        self.texto.set(escala.formatear(self.parametro, self.valor))
+        self.texto.set(escala.formatear(self.parametro, self.valor, con_unidad=True))
 
     def _pedir(self, valor: float) -> None:
         valor = escala.limitar(self.parametro, valor)
@@ -165,7 +171,7 @@ class Deslizador(tk.Frame):
 
     # -- gestos ------------------------------------------------------------------------------------------------
     def _p_raton(self, x: float) -> float:
-        return x_a_posicion(x, self.pista.winfo_width(), self.MARGEN)
+        return x_a_posicion(x, self.pista.winfo_width(), px(self.MARGEN))
 
     def _al_pulsar(self, e) -> None:
         self.pista.focus_set()
@@ -223,59 +229,102 @@ class Deslizador(tk.Frame):
             self._dibujar()
 
     # -- dibujo ----------------------------------------------------------------------------------------------------
+    def _dibujar_pista(self, c: tk.Canvas, x0: float, x1: float, y: float) -> None:
+        grosor = px(6)
+        if self.parametro != "temperatura":
+            c.create_line(x0, y, x1, y, fill=PISTA, width=grosor, capstyle="round")
+            return
+        pasos = max(8, int((x1 - x0) / 4))
+        for k in range(pasos):  # degradado naranja → gris → azul
+            a, b = x0 + (x1 - x0) * k / pasos, x0 + (x1 - x0) * (k + 1) / pasos
+            c.create_line(a, y, b + 1, y, fill=degradado(DEGRADADO_TEMPERATURA, (k + 0.5) / pasos), width=grosor)
+        r = grosor / 2
+        for x, col in ((x0, DEGRADADO_TEMPERATURA[0]), (x1, DEGRADADO_TEMPERATURA[-1])):
+            c.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="")
+
     def _dibujar(self) -> None:
         c = self.pista
         c.delete("all")
-        ancho, alto = c.winfo_width(), c.winfo_height()
+        ancho = c.winfo_width()
         if ancho < 2:
-            ancho, alto = int(c.cget("width") or 200), self.ALTO
-        y = alto / 2
-        x0, x1 = posicion_a_x(0, ancho, self.MARGEN), posicion_a_x(1, ancho, self.MARGEN)
-        c.create_line(x0, y, x1, y, fill=BORDE, width=4, capstyle="round")
+            ancho = int(c.cget("width") or 200)
+        y = px(16)
+        marg = px(self.MARGEN)
+        x0, x1 = posicion_a_x(0, ancho, marg), posicion_a_x(1, ancho, marg)
         pos = self._posicion()
         if self.preciso:
             neutro = escala.valor_a_posicion_precisa(self.parametro, self.par.neutro, self._centro)
             neutro = neutro if 0.0 < neutro < 1.0 else None
         else:
             neutro = escala.valor_a_posicion(self.parametro, self.par.neutro)
-        if neutro is not None:
-            xn = posicion_a_x(neutro, ancho, self.MARGEN)
-            c.create_line(xn, y - 7, xn, y + 7, fill=TEXTO_SUAVE, width=1)
-            c.create_line(xn, y, posicion_a_x(pos, ancho, self.MARGEN), y, fill=OLIVA, width=4, capstyle="round")
-        xp = posicion_a_x(pos, ancho, self.MARGEN)
-        c.create_oval(xp - 7, y - 7, xp + 7, y + 7, fill=ACENTO if self.preciso or self._arrastrando else TEXTO, outline=BG, width=2)
+        if neutro is not None:  # marca vertical del neutro (la pista la tapa en el centro)
+            xn = posicion_a_x(neutro, ancho, marg)
+            c.create_line(xn, y - px(10), xn, y + px(10), fill=MARCA_NEUTRO, width=px(2))
+        self._dibujar_pista(c, x0, x1, y)
+        xp = posicion_a_x(pos, ancho, marg)
+        resaltado = self.preciso or self._arrastrando
+        for radio, col in ((9, OLIVA), (8, FONDO_VENTANA), (6, ACENTO if resaltado else TEXTO)):
+            r = px(radio)
+            c.create_oval(xp - r, y - r, xp + r, y + r, fill=col, outline="")
         if self.preciso:
             bajo, alto_v = escala.ventana_precisa(self.parametro, self._centro)
-            c.create_text(x0, y + 11, text=escala.formatear(self.parametro, bajo), fill=TEXTO_SUAVE, font=("Segoe UI", 7), anchor="w")
-            c.create_text(x1, y + 11, text=escala.formatear(self.parametro, alto_v), fill=TEXTO_SUAVE, font=("Segoe UI", 7), anchor="e")
+        else:
+            bajo, alto_v = self.par.minimo, self.par.maximo
+        yt = px(32) + px(7)
+        c.create_text(0, yt, text=escala.formatear(self.parametro, bajo, con_unidad=True), fill=TEXTO_SUAVE, font=fuente(11), anchor="w")
+        c.create_text(ancho, yt, text=escala.formatear(self.parametro, alto_v, con_unidad=True), fill=TEXTO_SUAVE, font=fuente(11), anchor="e")
 
 
 # --- Gráfico de la curva --------------------------------------------------------------------------------------------
 class GraficoCurva(tk.Canvas):
-    """Curva de entrada → salida del perfil editado (los tres canales, o uno si son iguales)."""
+    """Curva de entrada → salida del perfil editado (azul si los tres canales son iguales; R, G y B si no)."""
 
-    LADO = 96
+    LADO = 130
 
     def __init__(self, master):
-        super().__init__(master, width=self.LADO, height=self.LADO, bg=SUPERFICIE, highlightthickness=1, highlightbackground=BORDE)
+        n = px(self.LADO)
+        super().__init__(master, width=n, height=n, bg=master.cget("bg"), highlightthickness=0, bd=0)
         self._rampa: Sequence[int] | None = None
         self.dibujar(None)
 
     def dibujar(self, rampa: Sequence[int] | None) -> None:
         self._rampa = rampa
         self.delete("all")
-        n = self.LADO
-        for k in (0.25, 0.5, 0.75):
-            self.create_line(k * n, 0, k * n, n, fill=BORDE)
-            self.create_line(0, k * n, n, k * n, fill=BORDE)
-        self.create_line(0, n - 1, n - 1, 0, fill=TEXTO_SUAVE, dash=(2, 3))  # la diagonal neutra
+        n, pad = px(self.LADO), px(4)
+        rect_redondeado(self, 0.5, 0.5, n - 0.5, n - 0.5, px(8), fill=CAMPO, outline=BORDE_VENTANA)
+        lado = n - 2 * pad
+        self.create_line(pad, n - pad, n - pad, pad, fill="#4a4940", width=px(2), dash=(px(6), px(5)))  # la diagonal neutra
         if rampa is None:
             return
+
+        def trazo(canal: int, col: str) -> None:
+            pts = [v for x, y in puntos_curva(rampa, lado, lado, canal) for v in (x + pad, y + pad)]
+            self.create_line(*pts, fill=col, width=px(2), joinstyle="round", smooth=True)
+
         if canales_iguales(rampa):
-            self.create_line(*[v for p in puntos_curva(rampa, n, n, 0) for v in p], fill=ACENTO, width=2)
+            trazo(0, CANAL["b"])
         else:
             for i, letra in enumerate("rgb"):
-                self.create_line(*[v for p in puntos_curva(rampa, n, n, i) for v in p], fill=CANAL[letra], width=1)
+                trazo(i, CANAL[letra])
+
+
+# --- Etiqueta del perfil activo --------------------------------------------------------------------------------------
+class EtiquetaPerfil(tk.Label):
+    """Nombre del perfil activo (sin caja). Guarda la lista de perfiles en ``values`` y abre un menú al pulsarla."""
+
+    def __init__(self, master, **kw):
+        self._valores: list[str] = []
+        super().__init__(master, **kw)
+
+    def configure(self, cnf=None, **kw):
+        if "values" in kw:
+            self._valores = list(kw.pop("values"))
+        return super().configure(cnf, **kw) if (cnf or kw) else None
+
+    config = configure
+
+    def cget(self, clave):
+        return self._valores if clave == "values" else super().cget(clave)
 
 
 # --- Ventana ----------------------------------------------------------------------------------------------------------
@@ -291,23 +340,10 @@ class Controlador(Protocol):
     def salir(self) -> None: ...
 
 
-def _estilo_ttk(raiz) -> None:
-    estilo = ttk.Style(raiz)
-    estilo.theme_use("clam")
-    estilo.configure(
-        "TCombobox", fieldbackground=SUPERFICIE, background=SUPERFICIE, foreground=TEXTO, arrowcolor=TEXTO,
-        bordercolor=BORDE, lightcolor=SUPERFICIE, darkcolor=SUPERFICIE, selectbackground=SUPERFICIE, selectforeground=TEXTO,
-    )
-    estilo.map("TCombobox", fieldbackground=[("readonly", SUPERFICIE)], foreground=[("readonly", TEXTO)])
-    raiz.option_add("*TCombobox*Listbox.background", SUPERFICIE)
-    raiz.option_add("*TCombobox*Listbox.foreground", TEXTO)
-    raiz.option_add("*TCombobox*Listbox.selectBackground", BORDE)
-
-
 class Panel:
-    """Ventana pequeña, de herramienta y siempre encima. La ✕ la oculta en la bandeja."""
+    """Ventana sin barra de título (cabecera propia), siempre encima y fuera de la barra de tareas. La ✕ la oculta en la bandeja."""
 
-    ANCHO = 560
+    ANCHO = 490
 
     def __init__(self, raiz: tk.Tk, estado: Estado, controlador: Controlador, reloj: Callable[[], float] = time.monotonic):
         self.raiz, self.estado, self.ctl, self.reloj = raiz, estado, controlador, reloj
@@ -317,6 +353,8 @@ class Panel:
         self.preguntar_guardar: Callable[[], bool | None] = self._preguntar_guardar
         self._mensaje: tuple[str, str, float] | None = None  # (texto, color, hasta)
         self._colocada = False
+        self._arrastre_ini: tuple[int, int, int, int] | None = None
+        fijar_escala(raiz)
         self._construir()
         self.refrescar()
         self.raiz.after(250, self._tick)
@@ -325,138 +363,173 @@ class Panel:
     def _construir(self) -> None:
         r = self.raiz
         r.title("Vislumbra")
-        r.configure(bg=BG)
+        r.configure(bg=BORDE_VENTANA)
         r.resizable(False, False)
-        for opcion, valor in (("-topmost", True), ("-toolwindow", True)):
-            try:
-                r.attributes(opcion, valor)
-            except tk.TclError:
-                pass
+        r.overrideredirect(True)  # sin barra de Windows: tampoco hay botón en la barra de tareas
+        try:
+            r.attributes("-topmost", True)
+        except tk.TclError:
+            pass
         r.protocol("WM_DELETE_WINDOW", self.ctl.ocultar_panel)
         r.bind("<space>", self._tecla_espacio)
-        _estilo_ttk(r)
-        self.marco = tk.Frame(r, bg=BG, padx=12, pady=10, width=self.ANCHO)
-        self.marco.pack(fill="both", expand=True)
-        m = self.marco
+        self.marco = tk.Frame(r, bg=FONDO_VENTANA)
+        self.marco.pack(fill="both", expand=True, padx=1, pady=1)
+        tk.Frame(self.marco, width=px(self.ANCHO - 2), height=1, bg=FONDO_VENTANA).pack()  # fija el ancho
+
+        self._cabecera()
+        cuerpo = tk.Frame(self.marco, bg=FONDO_VENTANA, padx=px(16), pady=px(16))
+        cuerpo.pack(fill="both", expand=True)
+        m = self.cuerpo = cuerpo
+        sep = (0, px(14))
 
         # Perfil activo
-        cab = tk.Frame(m, bg=BG)
-        cab.pack(fill="x")
-        tk.Label(cab, text="Perfil activo", bg=BG, fg=TEXTO_SUAVE, font=FUENTE).pack(side="left")
-        self._btn(cab, "‹", lambda: self._cambiar_activo(-1), 2).pack(side="left", padx=(8, 2))
+        cab = tk.Frame(m, bg=FONDO_VENTANA)
+        cab.pack(fill="x", pady=sep)
+        tk.Label(cab, text="Perfil activo", bg=FONDO_VENTANA, fg=TEXTO_SUAVE, font=fuente(13)).pack(side="left")
+        self._btn_ico(cab, "‹", lambda: self._cambiar_activo(-1)).pack(side="left", padx=(px(10), 0))
+        caja = tk.Frame(cab, bg=FONDO_VENTANA)
+        caja.pack(side="left", padx=(px(8), 0))
+        caja.columnconfigure(0, minsize=px(110))
         self.var_activo = tk.StringVar()
-        self.combo_activo = ttk.Combobox(cab, textvariable=self.var_activo, state="readonly", width=18, font=FUENTE)
-        self.combo_activo.pack(side="left")
-        self.combo_activo.bind("<<ComboboxSelected>>", lambda e: self._elegir_activo(self.var_activo.get()))
-        self._btn(cab, "›", lambda: self._cambiar_activo(+1), 2).pack(side="left", padx=(2, 0))
+        self.combo_activo = EtiquetaPerfil(caja, textvariable=self.var_activo, bg=FONDO_VENTANA, fg=TEXTO, font=fuente(14, True), cursor="hand2")
+        self.combo_activo.grid(row=0, column=0, sticky="ew")
+        self.combo_activo.bind("<Button-1>", self._menu_perfiles)
+        self._btn_ico(cab, "›", lambda: self._cambiar_activo(+1)).pack(side="left", padx=(px(8), 0))
         self.var_on = tk.BooleanVar(value=True)
-        tk.Checkbutton(
-            cab, text="● Activo", variable=self.var_on, command=self._alternar_activo, indicatoron=False, bg=SUPERFICIE,
-            fg=TEXTO, selectcolor=OLIVA, activebackground=BORDE, activeforeground=TEXTO, relief="flat", bd=0, padx=10, pady=3, font=FUENTE_NEGRITA,
-        ).pack(side="right")
+        self.btn_on = Boton(cab, "Activo", self._clic_activo, radio=16, punto=VERDE)
+        self.btn_on.pack(side="right")
 
-        # Pestañas de monitor
-        self.marco_pestanas = tk.Frame(m, bg=BG)
-        self.marco_pestanas.pack(fill="x", pady=(8, 0))
-        self.fila_monitor = tk.Frame(m, bg=BG)
-        self.fila_monitor.pack(fill="x", pady=(4, 0))
-        self.lbl_monitor = tk.Label(self.fila_monitor, bg=BG, fg=TEXTO, font=FUENTE_NEGRITA)
-        self.lbl_monitor.pack(side="left")
+        # Pestañas de monitor y fila del monitor
+        self.marco_pestanas = tk.Frame(m, bg=FONDO_VENTANA)
+        self.marco_pestanas.pack(fill="x", pady=sep)
+        self.bloque_monitor = tk.Frame(m, bg=FONDO_VENTANA)
+        self.bloque_monitor.pack(fill="x", pady=sep)
+        self.fila_monitor = tk.Frame(self.bloque_monitor, bg=FONDO_VENTANA)
+        self.fila_monitor.pack(fill="x")
+        self.fila_monitor.columnconfigure(0, minsize=px(88))
+        self.lbl_monitor = tk.Label(self.fila_monitor, bg=FONDO_VENTANA, fg=TEXTO_SUAVE, font=fuente(13), anchor="w")
+        self.lbl_monitor.grid(row=0, column=0, sticky="w")
         self.var_asignacion = tk.StringVar(value="activo")
-        for texto, valor in (("Sigue al perfil activo", "activo"), ("Perfil fijo", "fijo")):
-            tk.Radiobutton(
-                self.fila_monitor, text=texto, value=valor, variable=self.var_asignacion, command=self._asignacion_cambiada,
-                bg=BG, fg=TEXTO, selectcolor=SUPERFICIE, activebackground=BG, activeforeground=TEXTO, font=FUENTE,
-            ).pack(side="left", padx=(10, 0))
+        self.btn_asig = {}
+        for i, (texto, valor) in enumerate((("Sigue al perfil activo", "activo"), ("Perfil fijo", "fijo"))):
+            b = Boton(self.fila_monitor, texto, lambda v=valor: self._clic_asignacion(v), alto=30, minimo=38, relleno=10)
+            b.grid(row=0, column=i + 1, padx=(0 if i == 0 else px(8), 0))
+            self.btn_asig[valor] = b
         self.var_fijo = tk.StringVar()
-        self.combo_fijo = ttk.Combobox(self.fila_monitor, textvariable=self.var_fijo, state="readonly", width=14, font=FUENTE)
-        self.combo_fijo.pack(side="left", padx=(6, 0))
-        self.combo_fijo.bind("<<ComboboxSelected>>", lambda e: self._asignacion_cambiada())
+        self.marco_fijos = tk.Frame(self.bloque_monitor, bg=FONDO_VENTANA)
 
         # Editor
-        ed = tk.Frame(m, bg=SUPERFICIE, padx=10, pady=8, highlightthickness=1, highlightbackground=BORDE)
-        ed.pack(fill="x", pady=(8, 0))
-        tit = tk.Frame(ed, bg=SUPERFICIE)
-        tit.pack(fill="x")
-        self.lbl_editando = tk.Label(tit, bg=SUPERFICIE, fg=TEXTO, font=FUENTE_NEGRITA)
+        ed = Tarjeta(m, CABECERA, BORDE_VENTANA, radio=10, padx=12, pady=12)
+        ed.pack(fill="x", pady=sep)
+        fondo = CABECERA
+        linea1 = tk.Frame(ed, bg=fondo)
+        linea1.pack(fill="x")
+        tit = tk.Frame(linea1, bg=fondo)
+        tit.pack(side="left")
+        self.lbl_editando = TextoMixto(tit, " ", 13, TEXTO_SUAVE, 14, TEXTO, negrita2=True)
         self.lbl_editando.pack(side="left")
-        self.lbl_sin_guardar = tk.Label(tit, text="● sin guardar", bg=SUPERFICIE, fg=AVISO, font=FUENTE)
-        self.lbl_sin_guardar.pack(side="left", padx=8)
-        botones = tk.Frame(ed, bg=SUPERFICIE)
-        botones.pack(fill="x", pady=(6, 4))
+        self.lbl_sin_guardar = tk.Label(tit, text="● sin guardar", bg=fondo, fg=AVISO, font=fuente(11))
+        self.lbl_sin_guardar.pack(side="left", padx=px(8))
+        linea2 = tk.Frame(ed, bg=fondo)
+        linea2.pack(fill="x", pady=(px(8), 0))
         self.btns = {
-            "guardar": self._btn(botones, "Guardar", self._guardar),
-            "como": self._btn(botones, "Guardar como…", self._guardar_como),
-            "renombrar": self._btn(botones, "Renombrar", self._renombrar),
-            "borrar": self._btn(botones, "Borrar", self._borrar),
-            "descartar": self._btn(botones, "Descartar", self._descartar),
+            "guardar": Boton(linea1, "Guardar", self._guardar, relleno=10),
+            "como": Boton(linea1, "Guardar como…", self._guardar_como, relleno=10),
+            "renombrar": Boton(linea1, "Renombrar", self._renombrar, relleno=10),
+            "borrar": Boton(linea2, "Borrar", self._borrar),
+            "descartar": Boton(linea2, "Descartar", self._descartar),
         }
-        for b in self.btns.values():
-            b.pack(side="left", padx=(0, 4))
-        canales = tk.Frame(ed, bg=SUPERFICIE)
-        canales.pack(fill="x")
+        for clave in ("renombrar", "como", "guardar"):
+            self.btns[clave].pack(side="right", padx=(px(8), 0))
+        self.btns["borrar"].pack(side="left")
+        self.btns["descartar"].pack(side="left", padx=(px(8), 0))
+
+        canales = tk.Frame(ed, bg=fondo)
+        canales.pack(fill="x", pady=(px(12), 0))
         self.var_vinculado = tk.BooleanVar(value=True)
-        self.chk_vincular = tk.Checkbutton(
-            canales, text="Vincular canales", variable=self.var_vinculado, command=self._vincular_cambiado, bg=SUPERFICIE, fg=TEXTO,
-            selectcolor=BG, activebackground=SUPERFICIE, activeforeground=TEXTO, font=FUENTE,
-        )
+        self.chk_vincular = Casilla(canales, "Vincular canales", self.var_vinculado, self._vincular_cambiado)
         self.chk_vincular.pack(side="left")
-        self.lbl_canales = tk.Label(canales, text="R, G y B a la vez", bg=SUPERFICIE, fg=TEXTO_SUAVE, font=FUENTE)
-        self.lbl_canales.pack(side="left", padx=8)
-        self.btn_canal = {}
-        for letra in "rgb":
-            b = tk.Button(
-                canales, text=letra.upper(), width=3, bg=BG, fg=CANAL[letra], relief="flat", bd=0, font=FUENTE_NEGRITA,
-                command=lambda l=letra: self._elegir_canal(l),
-            )
-            self.btn_canal[letra] = b
+        self.grupo_canales = tk.Frame(canales, bg=fondo)
+        self.grupo_canales.pack(side="right")
+        self.lbl_canales = tk.Label(self.grupo_canales, text="R, G y B a la vez", bg=fondo, fg=TEXTO_SUAVE, font=fuente(12))
+        self.btn_canal = {
+            letra: Boton(self.grupo_canales, letra.upper(), lambda l=letra: self._elegir_canal(l), alto=30, minimo=38, relleno=10)
+            for letra in "rgb"
+        }
         self.deslizadores = {}
         for nombre in escala.PARAMETROS:
             d = Deslizador(ed, nombre, self._mover)
-            d.pack(fill="x", pady=1)
+            d.pack(fill="x", pady=(px(6), 0))
             self.deslizadores[nombre] = d
 
         # Pie: curva, A/B, restablecer, modo preciso y margen
-        pie = tk.Frame(m, bg=BG)
-        pie.pack(fill="x", pady=(8, 0))
-        self.grafico = GraficoCurva(pie)
-        self.grafico.pack(side="left")
-        der = tk.Frame(pie, bg=BG)
-        der.pack(side="left", fill="x", expand=True, padx=(12, 0))
-        fila = tk.Frame(der, bg=BG)
-        fila.pack(fill="x")
+        pie = tk.Frame(m, bg=FONDO_VENTANA)
+        pie.pack(fill="x", pady=sep)
+        fig = tk.Frame(pie, bg=FONDO_VENTANA)
+        fig.pack(side="left", anchor="n")
+        self.grafico = GraficoCurva(fig)
+        self.grafico.pack()
+        tk.Label(fig, text="Curva (discontinua = normal)", bg=FONDO_VENTANA, fg=TEXTO_SUAVE, font=fuente(11)).pack(anchor="w", pady=(px(6), 0))
+        der = tk.Frame(pie, bg=FONDO_VENTANA)
+        der.pack(side="left", fill="x", expand=True, padx=(px(16), 0), anchor="n")
         self.var_ab = tk.BooleanVar(value=False)
-        tk.Checkbutton(
-            fila, text="A/B", variable=self.var_ab, command=self._alternar_ab, indicatoron=False, bg=SUPERFICIE, fg=TEXTO,
-            selectcolor=OLIVA, activebackground=BORDE, activeforeground=TEXTO, relief="flat", bd=0, padx=12, pady=3, font=FUENTE_NEGRITA,
-        ).pack(side="left")
-        self._btn(fila, "Restablecer", self._restablecer).pack(side="left", padx=4)
-        self.btn_deshacer = self._btn(fila, "Deshacer", self._deshacer)
+        self.btn_ab = Boton(der, "A/B: viendo el ajuste", self._alternar_ab)
+        self.btn_ab.pack(fill="x")
+        fila = tk.Frame(der, bg=FONDO_VENTANA)
+        fila.pack(fill="x", pady=(px(10), 0))
+        Boton(fila, "Restablecer", self._restablecer).pack(side="left", fill="x", expand=True)
+        self.btn_deshacer = Boton(fila, "Deshacer", self._deshacer)
         self.var_preciso = tk.BooleanVar(value=False)
-        tk.Checkbutton(
-            fila, text="Modo preciso", variable=self.var_preciso, command=self._preciso_cambiado, bg=BG, fg=TEXTO, selectcolor=SUPERFICIE,
-            activebackground=BG, activeforeground=TEXTO, font=FUENTE,
-        ).pack(side="right")
-        self.lbl_margen = tk.Label(der, bg=BG, fg=TEXTO_SUAVE, font=FUENTE, anchor="w")
-        self.lbl_margen.pack(fill="x", pady=(8, 2))
-        self.barra = tk.Canvas(der, height=10, bg=SUPERFICIE, highlightthickness=0)
+        Casilla(der, "Modo preciso", self.var_preciso, self._preciso_cambiado).pack(anchor="w", pady=(px(10), 0))
+        self.lbl_margen = TextoMixto(der, ": ", 12, TEXTO_SUAVE, 12, TEXTO, lados=True, alto=18)
+        self.lbl_margen.pack(fill="x", pady=(px(10), px(5)))
+        self.barra = tk.Canvas(der, width=px(50), height=px(8), bg=FONDO_VENTANA, highlightthickness=0)
         self.barra.pack(fill="x")
+        self.barra.bind("<Configure>", lambda e: self._dibujar_barra(self._fraccion_margen))
+        self._fraccion_margen = 0.0
 
-        # Ajuste fuerte y línea de estado
-        self.marco_fuerte = tk.Frame(m, bg=BG)
-        self.lbl_fuerte = tk.Label(self.marco_fuerte, bg=BG, fg=AVISO, font=FUENTE_NEGRITA)
+        # Ajuste fuerte (aparece solo cuando hace falta) y línea de estado
+        self.marco_fuerte = Tarjeta(m, FUERTE_FONDO, FUERTE_BORDE, radio=8, padx=10, pady=8)
+        self.lbl_fuerte = tk.Label(self.marco_fuerte, bg=FUERTE_FONDO, fg=TEXTO, font=fuente(13))
         self.lbl_fuerte.pack(side="left")
-        self._btn(self.marco_fuerte, "Mantener", self._mantener).pack(side="left", padx=8)
-        self.lbl_resumen = tk.Label(m, bg=BG, fg=TEXTO_SUAVE, font=FUENTE, anchor="w", justify="left", wraplength=self.ANCHO - 24)
-        self.lbl_resumen.pack(fill="x", pady=(8, 0))
-        self.lbl_aviso = tk.Label(m, bg=BG, fg=AVISO, font=FUENTE, anchor="w", justify="left", wraplength=self.ANCHO - 24)
-        self.lbl_aviso.pack(fill="x")
+        Boton(self.marco_fuerte, "Mantener", self._mantener, estilo="activo").pack(side="right")
+        self.marco_estado = tk.Frame(m, bg=FONDO_VENTANA)
+        self.marco_estado.pack(fill="x")
+        tk.Frame(self.marco_estado, bg=LINEA, height=1).pack(fill="x")
+        ancho_texto = px(self.ANCHO - 2 - 32)
+        self.lbl_resumen = tk.Label(self.marco_estado, bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), anchor="w", justify="left", wraplength=ancho_texto)
+        self.lbl_resumen.pack(fill="x", pady=(px(10), 0))
+        self.lbl_aviso = tk.Label(self.marco_estado, bg=FONDO_VENTANA, fg=AVISO, font=fuente(12), anchor="w", justify="left", wraplength=ancho_texto)
+        self.lbl_aviso.pack(fill="x", pady=(px(2), 0))
 
-    def _btn(self, padre, texto: str, comando, ancho: int | None = None) -> tk.Button:
-        return tk.Button(
-            padre, text=texto, command=comando, width=ancho or 0, bg=SUPERFICIE if padre.cget("bg") == BG else BG, fg=TEXTO,
-            activebackground=BORDE, activeforeground=TEXTO, disabledforeground=BORDE, relief="flat", bd=0, padx=8, pady=3, font=FUENTE,
-        )
+    def _cabecera(self) -> None:
+        cab = tk.Frame(self.marco, bg=CABECERA, height=px(40))
+        cab.pack(fill="x")
+        cab.pack_propagate(False)
+        logo = tk.Canvas(cab, width=px(16), height=px(16), bg=CABECERA, highlightthickness=0)
+        dibujar_logo(logo)
+        logo.pack(side="left", padx=(px(14), px(10)))
+        titulo = tk.Label(cab, text="Vislumbra", bg=CABECERA, fg=TEXTO, font=fuente(13, True))
+        titulo.pack(side="left")
+        Boton(cab, "✕", lambda: self.ctl.ocultar_panel(), estilo="limpio", ancho=32, relleno=0, tam=17).pack(side="right", padx=(0, px(6)))
+        for w in (cab, logo, titulo):  # se arrastra la ventana desde la cabecera
+            w.bind("<ButtonPress-1>", self._arrastre_inicio)
+            w.bind("<B1-Motion>", self._arrastre_mover)
+        tk.Frame(self.marco, bg=LINEA, height=1).pack(fill="x")
+
+    def _btn_ico(self, padre, simbolo: str, comando) -> Boton:
+        return Boton(padre, simbolo, comando, ancho=32, tam=16, relleno=0)
+
+    # -- arrastrar la ventana -----------------------------------------------------------------------------------------------
+    def _arrastre_inicio(self, e) -> None:
+        self._arrastre_ini = (e.x_root, e.y_root, self.raiz.winfo_x(), self.raiz.winfo_y())
+
+    def _arrastre_mover(self, e) -> None:
+        if self._arrastre_ini is None:
+            return
+        rx, ry, vx, vy = self._arrastre_ini
+        x, y = nueva_posicion((vx, vy), (rx, ry), (e.x_root, e.y_root))
+        self.raiz.geometry(f"+{x}+{y}")
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------
     def _preguntar_texto(self, titulo: str, mensaje: str, inicial: str) -> str | None:
@@ -466,6 +539,16 @@ class Panel:
         return messagebox.askyesnocancel(
             "Cambios sin guardar", "Hay perfiles con cambios sin guardar.\n\nSí: guardar · No: descartar · Cancelar: volver.", parent=self.raiz,
         )
+
+    def _menu_perfiles(self, e) -> None:
+        """Lista de perfiles al pulsar el nombre (sustituye al desplegable)."""
+        menu = tk.Menu(self.raiz, tearoff=0, bg=BOTON, fg=TEXTO, activebackground=ACENTO, activeforeground=FONDO_VENTANA, bd=0, font=fuente(13))
+        for nombre in self.estado.nombres():
+            menu.add_command(label=nombre, command=lambda n=nombre: self._elegir_activo(n))
+        try:
+            menu.tk_popup(e.x_root, e.y_root)
+        finally:
+            menu.grab_release()
 
     # -- mensajes -----------------------------------------------------------------------------------------------------------------
     def mensaje(self, texto: str, color_: str = AVISO, segundos: float = 6.0) -> None:
@@ -484,13 +567,14 @@ class Panel:
         self.var_activo.set(e.activo)
         self.var_on.set(e.activo_on)
         self.var_ab.set(e.ab)
+        self._pintar_interruptores()
         self._reconstruir_pestanas()
         clave = next((m.clave for m in e.monitores if m.numero == e.mirado), "")
         fijo = e.asignacion(clave) if clave else None
         self.lbl_monitor.configure(text=f"Monitor {e.mirado}")
         self.var_asignacion.set("fijo" if fijo is not None else "activo")
-        self.combo_fijo.configure(values=nombres, state="readonly" if fijo is not None else "disabled")
         self.var_fijo.set(fijo or e.activo)
+        self._pintar_asignacion(nombres)
         p = e.perfil_editado()
         for nombre, d in self.deslizadores.items():
             d.poner_valor(e.valor(nombre))
@@ -500,16 +584,51 @@ class Panel:
         self._mostrar_canales(p.vinculado)
         self._refrescar_ligero()
 
-    def _mostrar_canales(self, vinculado: bool) -> None:
-        for b in self.btn_canal.values():
-            b.pack_forget()
-        if vinculado:
-            self.lbl_canales.configure(text="R, G y B a la vez")
+    def _pintar_interruptores(self) -> None:
+        on = bool(self.var_on.get())
+        self.btn_on.configure(text="Activo" if on else "Desactivado", punto=VERDE if on else MARCA_NEUTRO)
+        ab = bool(self.var_ab.get())
+        self.btn_ab.configure(text="A/B: viendo la pantalla normal" if ab else "A/B: viendo el ajuste", estilo="activo" if ab else "normal")
+
+    def _pintar_asignacion(self, nombres: Sequence[str] | None = None) -> None:
+        fijo = self.var_asignacion.get() == "fijo"
+        self.btn_asig["activo"].configure(estilo="normal" if fijo else "activo")
+        self.btn_asig["fijo"].configure(estilo="activo" if fijo else "normal")
+        for w in self.marco_fijos.winfo_children():
+            w.destroy()
+        if not fijo:
+            self.marco_fijos.pack_forget()
             return
-        self.lbl_canales.configure(text="Canal:")
+        self.marco_fijos.pack(fill="x", pady=(px(8), 0))
+        disponible = px(self.ANCHO - 2 - 32 - 96)
+        fila, usado = None, 0
+        for nombre in nombres if nombres is not None else self.estado.nombres():
+            for _ in range(2):
+                if fila is None:
+                    fila = tk.Frame(self.marco_fijos, bg=FONDO_VENTANA)
+                    fila.pack(fill="x", padx=(px(96), 0), pady=(0, px(6)))
+                    usado = 0
+                b = Boton(
+                    fila, nombre, lambda n=nombre: self._elegir_fijo(n), estilo="activo" if nombre == self.var_fijo.get() else "chip",
+                    alto=28, radio=14, tam=12, relleno=10,
+                )
+                if usado and usado + b._ancho_px > disponible:  # no cabe: nueva línea
+                    b.destroy()
+                    fila = None
+                    continue
+                b.pack(side="left", padx=(0, px(6)))
+                usado += b._ancho_px + px(6)
+                break
+
+    def _mostrar_canales(self, vinculado: bool) -> None:
+        for w in (self.lbl_canales, *self.btn_canal.values()):
+            w.pack_forget()
+        if vinculado:
+            self.lbl_canales.pack(side="left")
+            return
         for letra, b in self.btn_canal.items():
-            b.pack(side="left", padx=1)
-            b.configure(relief="sunken" if letra == self.estado.canal else "flat", bg=BORDE if letra == self.estado.canal else BG)
+            b.pack(side="left", padx=(0, px(6)))
+            b.configure(estilo="activo" if letra == self.estado.canal else "normal")
 
     def _refrescar_ligero(self) -> None:
         """Lo que cambia con cada movimiento de un deslizador (rápido)."""
@@ -518,7 +637,7 @@ class Panel:
         self.lbl_editando.configure(text=f"Editando «{p.nombre}»")
         sin = e.sin_guardar(p.nombre)
         if sin:
-            self.lbl_sin_guardar.pack(side="left", padx=8)
+            self.lbl_sin_guardar.pack(side="left", padx=px(8))
         else:
             self.lbl_sin_guardar.pack_forget()
         for clave, b in self.btns.items():
@@ -541,10 +660,15 @@ class Panel:
         self._refrescar_confirmaciones()
 
     def _dibujar_barra(self, fraccion: float) -> None:
+        self._fraccion_margen = fraccion
         b = self.barra
         b.delete("all")
-        ancho = b.winfo_width() if b.winfo_width() > 1 else self.ANCHO // 2
-        b.create_rectangle(0, 0, ancho * min(1.0, fraccion), 10, fill=PELIGRO if fraccion > 0.8 else (AVISO if fraccion > 0.6 else OLIVA), width=0)
+        ancho = b.winfo_width() if b.winfo_width() > 1 else px(self.ANCHO // 2)
+        alto = px(8)
+        rect_redondeado(b, 0, 0, ancho, alto, alto / 2, fill=LINEA, outline="")
+        lleno = max(alto, ancho * min(1.0, fraccion))
+        if fraccion > 0:
+            rect_redondeado(b, 0, 0, lleno, alto, alto / 2, fill=color_margen(fraccion), outline="")
 
     def _refrescar_confirmaciones(self) -> None:
         ahora = self.reloj()
@@ -553,9 +677,9 @@ class Panel:
             self.marco_fuerte.pack_forget()
         else:
             self.lbl_fuerte.configure(text=f"Ajuste fuerte · se deshará en {s:.0f} s")
-            self.marco_fuerte.pack(fill="x", pady=(6, 0), before=self.lbl_resumen)
+            self.marco_fuerte.pack(fill="x", pady=(0, px(14)), before=self.marco_estado)
         if self.estado.puede_deshacer(ahora):
-            self.btn_deshacer.pack(side="left")
+            self.btn_deshacer.pack(side="left", padx=(px(8), 0))
         else:
             self.btn_deshacer.pack_forget()
 
@@ -566,17 +690,23 @@ class Panel:
         if len(e.monitores) <= 1:
             self.marco_pestanas.pack_forget()
             return
-        self.marco_pestanas.pack(fill="x", pady=(8, 0), before=self.fila_monitor)
-        for p in e.pestanas():
-            marco = tk.Frame(self.marco_pestanas, bg=BORDE if p.numero == e.mirado else SUPERFICIE, padx=8, pady=4, cursor="hand2")
-            marco.pack(side="left", padx=(0, 4))
+        self.marco_pestanas.pack(fill="x", pady=(0, px(14)), before=self.bloque_monitor)
+        for i, p in enumerate(e.pestanas()):
+            elegida = p.numero == e.mirado
+            fondo = PESTANA_ACTIVA if elegida else PESTANA
+            marco = Tarjeta(
+                self.marco_pestanas, fondo, ACENTO if elegida else BORDE_BOTON, radio=8, padx=8, pady=7,
+                inset=ACENTO if elegida else None, cursor="hand2",
+            )
+            self.marco_pestanas.columnconfigure(i, weight=1, uniform="pestana")
+            marco.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else px(8), 0))
             titulo = f"Monitor {p.numero}" + (" · principal" if p.principal else "")
             sub = f"{p.perfil} ({'fijo' if p.fijo else 'activo'})"
-            for texto, col, fuente in ((titulo, TEXTO, FUENTE_NEGRITA), (sub, ACENTO if p.fijo else TEXTO_SUAVE, FUENTE)):
-                lbl = tk.Label(marco, text=texto, bg=marco.cget("bg"), fg=col, font=fuente, anchor="w")
+            marco.bind("<Button-1>", lambda ev, n=p.numero: self._mirar(n))
+            for texto, col, fuente_ in ((titulo, TEXTO, fuente(13, True)), (sub, ACENTO if p.fijo else TEXTO_SUAVE, fuente(11))):
+                lbl = tk.Label(marco, text=texto, bg=fondo, fg=col, font=fuente_, anchor="w", padx=0, pady=0)
                 lbl.pack(fill="x")
                 lbl.bind("<Button-1>", lambda ev, n=p.numero: self._mirar(n))
-            marco.bind("<Button-1>", lambda ev, n=p.numero: self._mirar(n))
 
     # -- acciones ---------------------------------------------------------------------------------------------------------------
     def _aplicar(self, persistir: bool = False) -> None:
@@ -613,6 +743,10 @@ class Panel:
         self.refrescar()
         self._aplicar(persistir=True)
 
+    def _clic_activo(self) -> None:
+        self.var_on.set(not self.var_on.get())
+        self._alternar_activo()
+
     def _alternar_activo(self) -> None:
         self.estado.poner_activo(self.var_on.get())
         self.refrescar()
@@ -622,15 +756,25 @@ class Panel:
     def _alternar_ab(self) -> None:
         if not self.estado.activo_on:
             self.var_ab.set(False)
+            self._pintar_interruptores()
             return
         self.estado.alternar_ab()
         self.var_ab.set(self.estado.ab)
+        self._pintar_interruptores()
         self._aplicar()
 
     def _tecla_espacio(self, ev) -> None:
-        if isinstance(ev.widget, (tk.Entry, ttk.Combobox)):
+        if isinstance(ev.widget, tk.Entry):
             return
         self._alternar_ab()
+
+    def _clic_asignacion(self, valor: str) -> None:
+        self.var_asignacion.set(valor)
+        self._asignacion_cambiada()
+
+    def _elegir_fijo(self, nombre: str) -> None:
+        self.var_fijo.set(nombre)
+        self._asignacion_cambiada()
 
     def _asignacion_cambiada(self) -> None:
         e = self.estado
@@ -749,6 +893,7 @@ class Panel:
         if not self._colocada:
             x, y = sistema.colocar_abajo_derecha(sistema.area_de_trabajo(), r.winfo_reqwidth(), r.winfo_reqheight())
             r.geometry(f"+{x}+{y}")
+            sistema.redondear_ventana(r, BORDE_VENTANA)
             self._colocada = True
         r.lift()
         r.focus_force()
