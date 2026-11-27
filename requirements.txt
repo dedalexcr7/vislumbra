@@ -1,3 +1,2 @@
 pystray>=0.19      # bandeja del sistema (LGPLv3)
-keyboard>=0.13      # atajos globales (MIT)
 Pillow>=10          # icono de la bandeja (MIT-CMU)
