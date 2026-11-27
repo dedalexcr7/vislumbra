@@ -16,6 +16,8 @@ from pathlib import Path
 import pystray
 from PIL import Image
 
+from . import sistema
+
 ICONOS = Path(__file__).resolve().parents[1] / "assets" / "iconos"
 TAMANO_ICONO = 64
 LIMITE_TEXTO_EMERGENTE = 120  # Windows corta el texto emergente a 127 caracteres
@@ -93,6 +95,7 @@ class Bandeja:
     """Icono, menú y avisos. ``al_accion(accion, argumento)`` se llama en el hilo de ``pystray``."""
 
     def __init__(self, al_accion: Callable[[str, str | None], None], obtener_info: Callable[[], InfoBandeja]):
+        sistema.menus_oscuros()  # antes de crear el icono: el menú nativo sale con el tema oscuro
         self._al_accion = al_accion
         self._obtener_info = obtener_info
         info = obtener_info()

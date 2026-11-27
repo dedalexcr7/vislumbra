@@ -166,3 +166,22 @@ def redondear_ventana(ventana, borde: str | None = None) -> bool:
         return ok
     except Exception:  # cosmético: nunca debe impedir mostrar el panel
         return False
+
+
+def menus_oscuros() -> bool:
+    """Pide a Windows que los menús nativos de este proceso (el de la bandeja) salgan con el tema oscuro.
+
+    Usa dos funciones de ``uxtheme.dll`` que Microsoft no documenta (por número: 135 ``SetPreferredAppMode``
+    y 136 ``FlushMenuThemes``). Solo afectan a los menús de este proceso, no tocan el registro ni los
+    controladores y no cambian nada del sistema. Si Windows no las tiene, el menú queda claro y devuelve ``False``.
+    """
+    try:
+        ux = ctypes.WinDLL("uxtheme")
+        establecer, refrescar = ux[135], ux[136]
+        establecer.argtypes, establecer.restype = [ctypes.c_int], ctypes.c_int
+        refrescar.argtypes, refrescar.restype = [], None
+        establecer(2)  # ForceDark: siempre oscuro, como el resto de la app
+        refrescar()
+        return True
+    except Exception:  # cosmético: nunca debe impedir arrancar la bandeja
+        return False

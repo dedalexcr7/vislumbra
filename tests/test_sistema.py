@@ -121,3 +121,7 @@ def test_limitar_al_area_mueve_la_ventana_lo_justo():
     assert sistema.limitar_al_area(100, 700, 300, 300, area) == (100, 500)  # y por abajo
     assert sistema.limitar_al_area(-50, -20, 300, 300, area) == (0, 0)
     assert sistema.limitar_al_area(5, 5, 2000, 2000, area) == (0, 0)  # no cabe: manda la esquina superior izquierda
+
+
+def test_menus_oscuros_devuelve_un_booleano_y_no_falla():
+    assert isinstance(sistema.menus_oscuros(), bool)
