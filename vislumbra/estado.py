@@ -363,6 +363,18 @@ class Estado:
             self.pendiente = None
         return p.nombre
 
+    def guardar_todos(self) -> list[str]:
+        """Guarda todos los perfiles con cambios (al salir con la opción «Guardar»)."""
+        nombres = []
+        for k, perfil in list(self._trabajo.items()):
+            self.conf.guardar(perfil)
+            nombres.append(perfil.nombre)
+            self._trabajo.pop(k, None)
+            if k in self._nuevos:
+                self._nuevos.remove(k)
+        self.pendiente = None
+        return nombres
+
     def guardar_como(self, nombre: str) -> str:
         """Crea otro perfil con lo que se ve y devuelve el original a lo guardado."""
         limpio = self._validar_nombre(nombre)

@@ -100,3 +100,35 @@ def rampas_guardadas(request, monitores_reales):
     guardadas = _guardar_rampas(monitores_reales)
     request.addfinalizer(lambda: _devolver_rampas(monitores_reales, guardadas, request.node.name))
     return guardadas
+
+
+@pytest.fixture(scope="session")
+def raiz_tk():
+    """Una única raíz de Tk para toda la sesión de pruebas.
+
+    Crear y destruir varias raíces ``Tk()`` en el mismo proceso falla de forma intermitente en
+    Windows («Can't find a usable tk.tcl»). Las pruebas de la interfaz usan un ``Toplevel`` de esta.
+    """
+    import tkinter as tk
+
+    try:
+        raiz = tk.Tk()
+    except tk.TclError as e:  # sin Tk o sin escritorio
+        pytest.skip(f"no hay Tk: {e}")
+    raiz.withdraw()
+    yield raiz
+    try:
+        raiz.destroy()
+    except tk.TclError:
+        pass
+
+
+@pytest.fixture
+def ventana(raiz_tk):
+    """Ventana oculta (``Toplevel``) para una prueba; se destruye al acabar."""
+    import tkinter as tk
+
+    v = tk.Toplevel(raiz_tk)
+    v.withdraw()
+    yield v
+    v.destroy()

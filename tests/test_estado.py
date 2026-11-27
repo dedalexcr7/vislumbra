@@ -188,6 +188,23 @@ def test_guardar_perfil_nuevo_lo_incorpora_a_la_configuracion(e):
     assert e.conf.obtener("Perfil 1").ajuste.r.gamma == 1.4
 
 
+def test_guardar_todos_guarda_todos_los_perfiles_con_cambios():
+    est = con_oscuro_activo()
+    est.mover("gamma", 2.0)
+    est.fijar_monitor(3, "Código")
+    est.mirar(3)
+    est.mover("brillo", -30.0)
+    assert sorted(est.nombres_sin_guardar()) == ["Código", "Oscuro"]
+    assert sorted(est.guardar_todos()) == ["Código", "Oscuro"]
+    assert not est.sin_guardar() and est.conf.obtener("Oscuro").ajuste.r.gamma == 2.0
+    assert est.conf.obtener("Código").ajuste.r.brillo == -30.0
+
+
+def test_guardar_todos_incluye_los_perfiles_nuevos(e):
+    e.mover("gamma", 1.4)
+    assert e.guardar_todos() == ["Perfil 1"] and e.conf.existe("Perfil 1") and e.conf_persistible().perfil_activo == "Perfil 1"
+
+
 def test_guardar_como_crea_otro_y_deja_el_original_en_lo_guardado():
     est = con_oscuro_activo()
     est.mover("gamma", 2.0)
