@@ -1,0 +1,2 @@
+-r requirements.txt
+pyinstaller>=6.22,<7   # solo para compilar el .exe (GPLv2+ con excepción para el bootloader: compatible con GPL v3)
