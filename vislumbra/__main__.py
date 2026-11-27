@@ -16,7 +16,7 @@ import re
 import sys
 import time
 
-from . import __version__, color, display, perfiles
+from . import __version__, bitacora, color, display, perfiles
 
 OK, ERROR_VALOR, ERROR_USO, ERROR_PANTALLA = 0, 1, 2, 3
 INTERRUMPIDO = 130  # Ctrl+C fuera de la espera
@@ -319,6 +319,7 @@ def _aplicar(a: argparse.Namespace, rampa: color.Rampa, descripcion: str | None 
 
 
 def main(argv: list[str] | None = None) -> int:
+    bitacora.asegurar_salida(__version__)  # sin consola (el .exe sin ventana) no hay stdout ni stderr: argparse fallaría
     for flujo in (sys.stdout, sys.stderr):
         if hasattr(flujo, "reconfigure"):
             flujo.reconfigure(errors="replace")
