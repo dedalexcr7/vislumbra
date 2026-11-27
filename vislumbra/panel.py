@@ -554,7 +554,7 @@ class Panel:
     def abrir_atajos(self) -> None:
         """Diálogo «Atajos…» (también desde el menú de la bandeja)."""
         guardar = getattr(self.ctl, "persistir")  # al cambiar los atajos se guarda y se vuelven a registrar
-        self.abrir_dialogo_atajos(self.raiz, self.estado, getattr(self.ctl, "gestor_atajos", None), guardar)
+        self.abrir_dialogo_atajos(self.raiz, self.estado, getattr(self.ctl, "gestor_atajos", None), guardar, lambda: getattr(self.ctl, "resultados_atajos", {}))
         self.refrescar()
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------

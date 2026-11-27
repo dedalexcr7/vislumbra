@@ -213,3 +213,235 @@ def test_la_pestana_de_un_monitor_con_programa_muestra_su_nombre():
     est.asociar_programa("juego.exe", "Código", "monitor:m-2")
     est.aplicar_programas(["juego.exe"], {})
     assert [(p.numero, p.perfil, p.programa) for p in est.pestanas()] == [(1, "Normal", None), (2, "Código", "juego.exe")]
+
+
+# --- Diálogo de atajos --------------------------------------------------------------------------------------------------------
+from types import SimpleNamespace as _Ev  # noqa: E402
+
+from vislumbra import atajos as _atajos  # noqa: E402
+from vislumbra.teclado import Resultado  # noqa: E402
+
+
+class GestorDeDialogo:
+    """Gestor de atajos simulado: cuenta pausas y reanudaciones y decide qué combinaciones están «en uso»."""
+
+    def __init__(self, ocupadas=()):
+        self.pausas = self.reanudaciones = 0
+        self.ocupadas = set(ocupadas)
+        self.probadas = []
+
+    def pausar(self, espera=2.0):
+        self.pausas += 1
+
+    def reanudar(self, espera=2.0):
+        self.reanudaciones += 1
+        return {}
+
+    def probar(self, comb, espera=2.0):
+        self.probadas.append(comb.texto())
+        return Resultado(False, 1409) if comb.texto() in self.ocupadas else Resultado(True)
+
+
+@pytest.fixture
+def dialogo_atajos(ventana):
+    estado = _estado_de_prueba()
+    gestor, cambios = GestorDeDialogo(), []
+    d = dialogos.DialogoAtajos(ventana, estado, gestor, lambda: cambios.append(1), lambda: {})
+    d.confirmar = lambda t, m: True
+    mods = []
+    d.leer_modificadores = lambda: frozenset(mods)
+
+    def pulsar(vk, *modificadores, keysym=""):
+        mods[:] = modificadores
+        return d._tecla(_Ev(keycode=vk, keysym=keysym))
+
+    d.pulsar = pulsar
+    yield d, estado, gestor, cambios
+    d.destroy()
+
+
+def test_el_dialogo_muestra_las_acciones_y_los_perfiles_con_sus_combinaciones(dialogo_atajos):
+    d, estado, _, _ = dialogo_atajos
+    assert [k for k in d.filas_ui if k[0] == "accion"] == [("accion", a) for a in _atajos.ACCIONES]
+    assert [k[1] for k in d.filas_ui if k[0] == "perfil"] == ["Normal", "Oscuro", "Código"]
+    assert d.filas_ui[("accion", "siguiente")]["comb"].cget("text") == "Ctrl+Alt+P"
+    assert d.filas_ui[("accion", "anterior")]["comb"].cget("text") == "Ctrl+Alt+Mayús+P"
+    assert d.filas_ui[("accion", "preciso")]["comb"].cget("text") == "sin atajo"
+    assert d.filas_ui[("perfil", "Código")]["comb"].cget("text") == "sin atajo"
+    assert d.filas_ui[("accion", "emergencia")]["quitar"] is None  # la emergencia no se puede quitar
+    assert d.var_aviso.get() == "Ninguno"
+
+
+def test_grabar_una_combinacion_pausa_los_atajos_asigna_y_los_reanuda(dialogo_atajos):
+    d, estado, gestor, cambios = dialogo_atajos
+    clave = ("accion", "preciso")
+    d.grabar(clave)
+    assert gestor.pausas == 1 and gestor.reanudaciones == 0
+    assert "Pulsa la combinación" in d.filas_ui[clave]["estado"].cget("text")
+    assert d.pulsar(0x4D, "Ctrl", "Alt") == "break"  # Ctrl+Alt+M
+    assert estado.atajos.acciones["preciso"].texto() == "Ctrl+Alt+M" and d.filas_ui[clave]["comb"].cget("text") == "Ctrl+Alt+M"
+    assert gestor.reanudaciones == 1 and gestor.probadas == ["Ctrl+Alt+M"] and cambios == [1]
+    assert d.filas_ui[clave]["estado"].cget("text") == "" and d._grabando is None
+
+
+def test_grabar_un_atajo_de_perfil_incluido_normal(dialogo_atajos):
+    d, estado, _, _ = dialogo_atajos
+    d.grabar(("perfil", "Normal"))
+    d.pulsar(0x31, "Ctrl", "Alt")
+    assert estado.atajos.perfiles["Normal"].texto() == "Ctrl+Alt+1"
+    d.grabar(("perfil", "Código"))
+    d.pulsar(0x70 + 2, "Ctrl", "Alt", "Shift")  # F3
+    assert estado.atajos.perfiles["Código"].texto() == "Ctrl+Alt+Shift+F3"
+
+
+def test_los_modificadores_solos_no_terminan_la_grabacion(dialogo_atajos):
+    d, estado, gestor, cambios = dialogo_atajos
+    d.grabar(("accion", "preciso"))
+    for vk in (0x11, 0x12, 0x10, 0x5B, 0xA2, 0xA4):  # Ctrl, Alt, Mayús, Win…
+        assert d.pulsar(vk, "Ctrl") == "break"
+    assert d._grabando == ("accion", "preciso") and gestor.reanudaciones == 0 and cambios == []
+
+
+def test_una_tecla_no_admitida_se_avisa_y_se_sigue_grabando(dialogo_atajos):
+    d, estado, gestor, _ = dialogo_atajos
+    clave = ("accion", "preciso")
+    d.grabar(clave)
+    d.pulsar(0x6B, "Ctrl", "Alt")  # «+» del teclado numérico
+    assert "no se admite" in d.filas_ui[clave]["estado"].cget("text") and d._grabando == clave
+    d.pulsar(0x4D, "Ctrl", "Alt")
+    assert estado.atajos.acciones["preciso"].texto() == "Ctrl+Alt+M"
+
+
+def test_un_atajo_repetido_se_rechaza_con_el_nombre_de_quien_lo_usa_y_se_reanuda(dialogo_atajos):
+    d, estado, gestor, cambios = dialogo_atajos
+    clave = ("accion", "preciso")
+    d.grabar(clave)
+    d.pulsar(0x50, "Ctrl", "Alt")  # Ctrl+Alt+P: ya es «Siguiente perfil»
+    assert "ya la usa «Siguiente perfil»" in d.filas_ui[clave]["estado"].cget("text")
+    assert estado.atajos.acciones["preciso"] is None and gestor.reanudaciones == 1 and cambios == [] and gestor.probadas == []
+
+
+def test_una_combinacion_ocupada_por_otra_aplicacion_se_rechaza(ventana):
+    estado, gestor, cambios = _estado_de_prueba(), GestorDeDialogo(ocupadas={"Ctrl+Alt+L"}), []
+    d = dialogos.DialogoAtajos(ventana, estado, gestor, lambda: cambios.append(1), lambda: {})
+    d.leer_modificadores = lambda: frozenset({"Ctrl", "Alt"})
+    try:
+        d.grabar(("accion", "preciso"))
+        d._tecla(_Ev(keycode=0x4C, keysym="l"))
+        assert "En uso por otra aplicación" in d.filas_ui[("accion", "preciso")]["estado"].cget("text")
+        assert estado.atajos.acciones["preciso"] is None and gestor.reanudaciones == 1 and cambios == []
+    finally:
+        d.destroy()
+
+
+def test_una_combinacion_no_valida_se_rechaza(dialogo_atajos):
+    d, estado, gestor, _ = dialogo_atajos
+    d.grabar(("accion", "preciso"))
+    d.pulsar(0x4D, "Shift")  # Mayús sola
+    assert "Mayús sola" in d.filas_ui[("accion", "preciso")]["estado"].cget("text") and estado.atajos.acciones["preciso"] is None
+    d.grabar(("accion", "preciso"))
+    d.pulsar(0x4D)  # sin modificador
+    assert "Ctrl, Alt o Win" in d.filas_ui[("accion", "preciso")]["estado"].cget("text") and gestor.reanudaciones == 2
+
+
+def test_se_puede_grabar_f13_a_f24_sin_modificador(dialogo_atajos):
+    d, estado, _, _ = dialogo_atajos
+    d.grabar(("accion", "preciso"))
+    d.pulsar(0x7C)  # F13
+    assert estado.atajos.acciones["preciso"].texto() == "F13"
+
+
+def test_escape_cancela_la_grabacion_sin_cerrar_el_dialogo_y_reanuda(dialogo_atajos):
+    d, estado, gestor, cambios = dialogo_atajos
+    d.grabar(("accion", "preciso"))
+    assert d._escape() == "break" and d._grabando is None
+    assert gestor.reanudaciones == 1 and cambios == [] and d.winfo_exists() and d.resultado is None
+    assert d.filas_ui[("accion", "preciso")]["estado"].cget("text") == ""
+
+
+def test_empezar_otra_grabacion_cancela_la_anterior_y_cerrar_reanuda(dialogo_atajos):
+    d, _, gestor, _ = dialogo_atajos
+    d.grabar(("accion", "preciso"))
+    d.grabar(("accion", "comparar"))
+    assert d._grabando == ("accion", "comparar") and gestor.pausas == 2 and gestor.reanudaciones == 1
+    d._cerrar(None)  # se cierra grabando: los atajos se reanudan
+    assert gestor.reanudaciones == 2
+
+
+def test_sin_gestor_de_atajos_grabar_tambien_funciona(ventana):
+    estado, cambios = _estado_de_prueba(), []
+    d = dialogos.DialogoAtajos(ventana, estado, None, lambda: cambios.append(1), lambda: {})
+    d.leer_modificadores = lambda: frozenset({"Ctrl", "Alt"})
+    try:
+        d.grabar(("accion", "preciso"))
+        d._tecla(_Ev(keycode=0x4D, keysym="m"))
+        assert estado.atajos.acciones["preciso"].texto() == "Ctrl+Alt+M" and cambios == [1]
+    finally:
+        d.destroy()
+
+
+def test_quitar_un_atajo_y_la_emergencia_no_se_puede_quitar(dialogo_atajos):
+    d, estado, _, cambios = dialogo_atajos
+    d.quitar(("accion", "comparar"))
+    assert estado.atajos.acciones["comparar"] is None and d.filas_ui[("accion", "comparar")]["comb"].cget("text") == "sin atajo" and cambios == [1]
+    d.quitar(("accion", "emergencia"))
+    assert "no quitar" in d.filas_ui[("accion", "emergencia")]["estado"].cget("text") and estado.atajos.acciones["emergencia"] is not None
+    assert cambios == [1]
+
+
+def test_restaurar_valores_por_defecto_pide_confirmacion_y_no_toca_los_perfiles(dialogo_atajos):
+    d, estado, _, cambios = dialogo_atajos
+    estado.asignar_atajo(("accion", "siguiente"), _atajos.parsear("Ctrl+Alt+F9"))
+    estado.asignar_atajo(("perfil", "Oscuro"), _atajos.parsear("Ctrl+Alt+2"))
+    d.confirmar = lambda t, m: False
+    d._restaurar()
+    assert estado.atajos.acciones["siguiente"].texto() == "Ctrl+Alt+F9" and cambios == []
+    d.confirmar = lambda t, m: True
+    d._restaurar()
+    d.refrescar()
+    assert estado.atajos.acciones["siguiente"].texto() == "Ctrl+Alt+P" and estado.atajos.perfiles["Oscuro"].texto() == "Ctrl+Alt+2"
+    assert d.filas_ui[("accion", "siguiente")]["comb"].cget("text") == "Ctrl+Alt+P" and cambios == [1]
+
+
+def test_el_aviso_de_altgr_se_muestra_al_asignar_una_combinacion_que_escribe_un_caracter(dialogo_atajos, monkeypatch):
+    from vislumbra import teclado
+
+    d, estado, _, _ = dialogo_atajos
+    monkeypatch.setattr(teclado, "caracter_con_altgr", lambda c: "@" if c.tecla == "Q" else None)
+    d.grabar(("accion", "preciso"))
+    d.pulsar(0x51, "Ctrl", "Alt")  # Ctrl+Alt+Q
+    assert "escribe «@» con AltGr" in d.lbl_mensaje.cget("text") and estado.atajos.acciones["preciso"].texto() == "Ctrl+Alt+Q"
+    d.grabar(("accion", "preciso"))
+    d.pulsar(0x4D, "Ctrl", "Alt")
+    assert d.lbl_mensaje.cget("text") == ""
+
+
+def test_el_aviso_al_usar_un_atajo_se_cambia_y_se_guarda(dialogo_atajos):
+    d, estado, _, cambios = dialogo_atajos
+    d.var_aviso.set("Sonido")
+    d._aviso_cambiado()
+    assert estado.atajos.aviso == "sonido" and cambios == [1]
+    d.var_aviso.set("Notificación")
+    d._aviso_cambiado()
+    assert estado.atajos.aviso == "notificacion"
+
+
+def test_las_combinaciones_en_uso_por_otra_aplicacion_se_marcan_en_la_fila(ventana):
+    estado = _estado_de_prueba()
+    d = dialogos.DialogoAtajos(ventana, estado, None, lambda: None, lambda: {("accion", "siguiente"): Resultado(False, 1409), ("accion", "comparar"): Resultado(True)})
+    try:
+        assert "En uso por otra aplicación" in d.filas_ui[("accion", "siguiente")]["estado"].cget("text")
+        assert d.filas_ui[("accion", "comparar")]["estado"].cget("text") == ""
+    finally:
+        d.destroy()
+
+
+def test_los_perfiles_se_listan_con_sus_atajos_al_abrir(ventana):
+    estado = _estado_de_prueba()
+    estado.asignar_atajo(("perfil", "Oscuro"), _atajos.parsear("Ctrl+Alt+2"))
+    d = dialogos.DialogoAtajos(ventana, estado, None, lambda: None, lambda: {})
+    try:
+        assert d.filas_ui[("perfil", "Oscuro")]["comb"].cget("text") == "Ctrl+Alt+2"
+        assert d.combinacion_de(("perfil", "Código")) is None
+    finally:
+        d.destroy()

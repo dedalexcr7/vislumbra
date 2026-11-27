@@ -10,12 +10,16 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 
-from . import sistema
+from . import sistema, teclado
+from .atajos import ACCION as ACCION_ATAJO
+from .atajos import ACCIONES as ACCIONES_ATAJOS
+from .atajos import ETIQUETAS as ETIQUETAS_ATAJOS
+from .atajos import ETIQUETAS_AVISO, PERFIL as PERFIL_ATAJO, ErrorAtajo, combinacion as combinacion_de, tecla_de_vk
 from .estado import Estado
 from .perfiles import ErrorPerfil
 from .programas import ALCANCE_ACTIVO, ALCANCE_VENTANA, alcance_de_monitor, clave_de_alcance
 from .widgets import (
-    ACENTO, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, PISTA, TEXTO, Boton, CampoRedondo, Selector, Tarjeta,
+    ACENTO, AVISO, PELIGRO, TEXTO_SUAVE, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, PISTA, TEXTO, Boton, CampoRedondo, Selector, Tarjeta,
     fuente, nueva_posicion, px, rect_redondeado,
 )
 
@@ -335,3 +339,220 @@ class DialogoProgramas(Dialogo):
 
 def programas(raiz: tk.Misc, estado: Estado, procesos_abiertos: Callable[[], list[str]], al_cambiar: Callable[[], None]) -> None:
     ejecutar(raiz, DialogoProgramas(raiz, estado, procesos_abiertos, al_cambiar))
+
+
+# --- Atajos de teclado ----------------------------------------------------------------------------------------------
+_TECLAS_MODIFICADORAS = frozenset({16, 17, 18, 20, 91, 92, 160, 161, 162, 163, 164, 165})  # Mayús, Ctrl, Alt, Bloq Mayús, Win…
+
+
+class DialogoAtajos(Dialogo):
+    """Lista de atajos de las acciones y de los perfiles: cambiar grabando la combinación, quitar y restaurar.
+
+    Mientras se graba, los atajos globales se **pausan** (si no, grabar uno que la app ya tiene activaría su acción) y se
+    reanudan siempre al terminar, aunque falle o se cancele. Antes de asignar se comprueba que no esté repetida y que
+    Windows la deje registrar (otra aplicación podría tenerla).
+    """
+
+    def __init__(self, raiz: tk.Misc, estado: Estado, gestor, al_cambiar: Callable[[], None], resultados: Callable[[], dict] | None = None):
+        super().__init__(
+            raiz, "Atajos de teclado",
+            "Funcionan siempre, también con otra ventana (o un juego) delante. Recomendado: Ctrl, Alt y Mayús (la tecla Windows puede abrir el menú Inicio).",
+            [("Cerrar", None, "activo")],
+        )
+        self.estado, self._gestor, self._al_cambiar = estado, gestor, al_cambiar
+        self._resultados = resultados or (lambda: {})
+        self.confirmar: Callable[[str, str], bool] = lambda t, m: confirmar(self, t, m)
+        self.leer_modificadores: Callable[[], frozenset[str]] = teclado.leer_modificadores
+        self._grabando: tuple[str, str] | None = None
+        self.filas_ui: dict[tuple[str, str], dict] = {}
+        self._estados: dict[tuple[str, str], str] = {}  # texto de estado por fila (errores y avisos de la última acción)
+        marco = tk.Frame(self._cuerpo, bg=FONDO_VENTANA)
+        marco.pack(before=self._fila, fill="x", pady=(px(10), 0))
+        self._marco_filas = marco
+        self._construir_filas()
+        fila = tk.Frame(marco, bg=FONDO_VENTANA)
+        fila.pack(fill="x", pady=(px(10), 0))
+        tk.Label(fila, text="Aviso al usar un atajo", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), anchor="w").pack(side="left")
+        self.var_aviso = tk.StringVar(master=self, value=ETIQUETAS_AVISO[estado.atajos.aviso])
+        self.combo_aviso = Selector(fila, self.var_aviso, list(ETIQUETAS_AVISO.values()), tam=12, comando=self._aviso_cambiado)
+        self.combo_aviso.pack(side="left", fill="x", expand=True, padx=(px(10), 0))
+        self.lbl_mensaje = tk.Label(marco, text="", bg=FONDO_VENTANA, fg=AVISO, font=fuente(11), anchor="w", justify="left", wraplength=px(self.ANCHO_TEXTO + 160))
+        self.lbl_mensaje.pack(fill="x", pady=(px(8), 0))
+        Boton(marco, "Restaurar valores por defecto", self._restaurar, minimo=76).pack(anchor="w", pady=(px(6), 0))
+        self.bind("<KeyPress>", self._tecla)
+        self.bind("<Escape>", self._escape)
+        self.bind("<Return>", lambda e: "break" if self._grabando else self._cerrar(None))
+        self.refrescar()
+
+    # -- construcción -----------------------------------------------------------------------------------------------------
+    def _construir_filas(self) -> None:
+        def titulo(texto: str) -> None:
+            tk.Label(self._marco_filas, text=texto, bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12, True), anchor="w").pack(fill="x", pady=(px(8), px(2)))
+
+        titulo("Acciones")
+        for accion in ACCIONES_ATAJOS:
+            self._fila_de((ACCION_ATAJO, accion), ETIQUETAS_ATAJOS[accion], quitable=accion != "emergencia")
+        titulo("Perfiles (ir directamente a uno)")
+        for nombre in self.estado.nombres():
+            self._fila_de((PERFIL_ATAJO, nombre), nombre, quitable=True)
+
+    def _fila_de(self, clave: tuple[str, str], etiqueta: str, quitable: bool) -> None:
+        fila = tk.Frame(self._marco_filas, bg=FONDO_VENTANA)
+        fila.pack(fill="x", pady=px(1))
+        tk.Label(fila, text=etiqueta, bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), anchor="w", width=29).pack(side="left")
+        comb = tk.Label(fila, text="", bg=FONDO_VENTANA, fg=ACENTO, font=fuente(12, True), anchor="w", width=17)
+        comb.pack(side="left")
+        if quitable:
+            btn_quitar = Boton(fila, "Quitar", lambda c=clave: self.quitar(c), minimo=54)
+            btn_quitar.pack(side="right", padx=(px(6), 0))
+        else:
+            btn_quitar = None
+        btn_cambiar = Boton(fila, "Cambiar", lambda c=clave: self.grabar(c), minimo=64)
+        btn_cambiar.pack(side="right")
+        estado = tk.Label(fila, text="", bg=FONDO_VENTANA, fg=AVISO, font=fuente(11), anchor="e")
+        estado.pack(side="right", padx=(0, px(8)))
+        self.filas_ui[clave] = {"comb": comb, "estado": estado, "cambiar": btn_cambiar, "quitar": btn_quitar}
+
+    # -- mostrar el estado -----------------------------------------------------------------------------------------------------
+    def combinacion_de(self, clave: tuple[str, str]):
+        a = self.estado.atajos
+        return a.acciones.get(clave[1]) if clave[0] == ACCION_ATAJO else a.perfiles.get(clave[1])
+
+    def refrescar(self) -> None:
+        resultados = self._resultados()
+        for clave, ui in self.filas_ui.items():
+            comb = self.combinacion_de(clave)
+            ui["comb"].configure(text=comb.mostrar() if comb else "sin atajo", fg=ACENTO if comb else TEXTO_SUAVE)
+            if self._grabando == clave:
+                if clave in self._estados:  # una tecla no admitida: se sigue grabando
+                    texto, color_ = f"{self._estados[clave]} · prueba otra (Esc cancela)", PELIGRO
+                else:
+                    texto, color_ = "Pulsa la combinación… (Esc cancela)", ACENTO
+            elif clave in self._estados:
+                texto, color_ = self._estados[clave], PELIGRO
+            elif comb is not None and clave in resultados and not resultados[clave].ok:
+                texto, color_ = "● En uso por otra aplicación", AVISO
+            else:
+                texto, color_ = "", AVISO
+            ui["estado"].configure(text=texto, fg=color_)
+
+    def _mensaje(self, texto: str, color_: str = AVISO) -> None:
+        self.lbl_mensaje.configure(text=texto, fg=color_)
+
+    # -- grabar ----------------------------------------------------------------------------------------------------------------
+    def grabar(self, clave: tuple[str, str]) -> None:
+        """Empieza a grabar: se pausan los atajos y la próxima combinación pulsada se asigna a ``clave``."""
+        if self._grabando is not None:
+            self._cancelar_grabacion()
+        self._estados.pop(clave, None)
+        self._grabando = clave
+        self._pausar()
+        self._mensaje("")
+        self.refrescar()
+        self.focus_force()
+
+    def _pausar(self) -> None:
+        if self._gestor is not None:
+            try:
+                self._gestor.pausar()
+            except teclado.ErrorTeclado:
+                pass
+
+    def _reanudar(self) -> None:
+        if self._gestor is not None:
+            try:
+                self._gestor.reanudar()
+            except teclado.ErrorTeclado:
+                pass
+
+    def _cancelar_grabacion(self) -> None:
+        if self._grabando is not None:
+            self._grabando = None
+            self._reanudar()
+            self.refrescar()
+
+    def _escape(self, _e=None):
+        if self._grabando is not None:
+            self._cancelar_grabacion()
+            return "break"
+        self._cerrar(None)
+
+    def _tecla(self, e):
+        """Una tecla pulsada: si se está grabando y no es un modificador, es la combinación."""
+        if self._grabando is None:
+            return None
+        if e.keycode in _TECLAS_MODIFICADORAS:
+            return "break"
+        clave = self._grabando
+        tecla = tecla_de_vk(e.keycode)
+        if tecla is None:
+            self._estados[clave] = "Esa tecla no se admite"
+            self.refrescar()
+            return "break"
+        self._terminar_grabacion(clave, combinacion_de(self.leer_modificadores(), tecla))
+        return "break"
+
+    def _terminar_grabacion(self, clave: tuple[str, str], comb) -> None:
+        """Valida, comprueba duplicados y conflictos con Windows, asigna y reanuda los atajos (siempre)."""
+        self._grabando = None
+        self._estados.pop(clave, None)
+        asignado = False
+        try:
+            comb.validar()
+            otro = self.estado.atajos.uso(comb, excepto=clave)
+            if otro is not None:
+                raise ErrorAtajo(f"{comb.mostrar()} ya la usa «{otro}».")
+            if self._gestor is not None:
+                prueba = self._gestor.probar(comb)
+                if not prueba.ok:
+                    raise ErrorAtajo("En uso por otra aplicación" if prueba.en_uso else f"Windows no la deja registrar (código {prueba.codigo})")
+            self.estado.asignar_atajo(clave, comb)
+            asignado = True
+        except (ErrorAtajo, teclado.ErrorTeclado) as err:
+            self._estados[clave] = str(err)[:1].upper() + str(err)[1:]
+        finally:
+            self._reanudar()
+        if asignado:
+            letra = teclado.caracter_con_altgr(comb)
+            self._mensaje(
+                f"{comb.mostrar()} escribe «{letra}» con AltGr en tu teclado: no podrás escribirlo mientras sea un atajo." if letra else "", AVISO,
+            )
+            self._al_cambiar()
+        self.refrescar()
+
+    # -- quitar, restaurar y aviso ---------------------------------------------------------------------------------------------
+    def quitar(self, clave: tuple[str, str]) -> None:
+        if self._grabando is not None:
+            self._cancelar_grabacion()
+        self._estados.pop(clave, None)
+        try:
+            self.estado.asignar_atajo(clave, None)
+        except ErrorAtajo as err:
+            self._estados[clave] = str(err)[:1].upper() + str(err)[1:]
+        else:
+            self._al_cambiar()
+        self.refrescar()
+
+    def _restaurar(self) -> None:
+        if not self.confirmar("Restaurar atajos", "¿Volver los atajos de las acciones a sus valores por defecto? Los atajos de perfil no se tocan."):
+            return
+        avisos = self.estado.restaurar_atajos()
+        self._estados.clear()
+        self._mensaje(" ".join(avisos), AVISO)
+        self._al_cambiar()
+        self.refrescar()
+
+    def _aviso_cambiado(self) -> None:
+        clave = next((k for k, v in ETIQUETAS_AVISO.items() if v == self.var_aviso.get()), "ninguno")
+        self.estado.poner_aviso_atajos(clave)
+        self._al_cambiar()
+
+    def _cerrar(self, valor: object) -> None:
+        if self._grabando is not None:
+            self._grabando = None
+            self._reanudar()
+        super()._cerrar(valor)
+
+
+def atajos(raiz: tk.Misc, estado: Estado, gestor, al_cambiar: Callable[[], None], resultados: Callable[[], dict] | None = None) -> None:
+    ejecutar(raiz, DialogoAtajos(raiz, estado, gestor, al_cambiar, resultados))
