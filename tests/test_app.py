@@ -1064,3 +1064,15 @@ def test_la_bandeja_abre_el_dialogo_de_atajos(entorno):
     a._atender_bandeja(tray.ATAJOS, None)
     assert a.panel.visible and len(llamadas) == 1 and llamadas[0][1] is a.estado and llamadas[0][2] is entorno.gestor
     assert llamadas[0][3] == a.panel.ctl.persistir
+
+
+def test_la_info_de_la_bandeja_lleva_las_combinaciones_y_se_actualiza_al_cambiarlas(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert a._info.atajos[("accion", "siguiente")] == "Ctrl+Alt+P" and ("accion", "preciso") not in a._info.atajos
+    a.estado.asignar_atajo(("perfil", "Oscuro"), atajos.parsear("Ctrl+Alt+2"))
+    a.persistir()
+    assert a._info.atajos[("perfil", "Oscuro")] == "Ctrl+Alt+2"
+    a.estado.asignar_atajo(("accion", "siguiente"), atajos.parsear("Ctrl+Alt+Shift+F9"))
+    a.persistir()
+    assert a._info.atajos[("accion", "siguiente")] == "Ctrl+Alt+Mayús+F9"

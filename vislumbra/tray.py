@@ -44,6 +44,7 @@ class InfoBandeja:
     perfiles: tuple[str, ...] = ("Normal",)
     ab: bool = False
     grupos: tuple[tuple[str, tuple[int, ...]], ...] = field(default_factory=tuple)  # (perfil, monitores)
+    atajos: dict[tuple[str, str], str] = field(default_factory=dict)  # ("accion", "siguiente") / ("perfil", "Código") -> «Ctrl+Alt+P»
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,7 @@ class ItemMenu:
     hijos: tuple["ItemMenu", ...] | None = None
     separador: bool = False
     habilitado: bool = True  # False: texto gris que hace de cabecera de sección
+    atajo: str | None = None  # combinación que se muestra a la derecha del texto
 
 
 SEPARADOR = ItemMenu(separador=True)
@@ -63,15 +65,18 @@ SEPARADOR = ItemMenu(separador=True)
 
 def construir_menu(info: InfoBandeja) -> list[ItemMenu]:
     """Menú de la bandeja: como la maqueta, con la lista de perfiles plana bajo la cabecera «Perfil activo»."""
+    def atajo(tipo: str, nombre: str) -> str | None:
+        return info.atajos.get((tipo, nombre))
+
     return [
-        ItemMenu("Mostrar panel", MOSTRAR_OCULTAR, predeterminado=True),
-        ItemMenu("Activo", ALTERNAR_ACTIVO, marcado=info.activo_on),
+        ItemMenu("Mostrar panel", MOSTRAR_OCULTAR, predeterminado=True, atajo=atajo("accion", "panel")),
+        ItemMenu("Activo", ALTERNAR_ACTIVO, marcado=info.activo_on, atajo=atajo("accion", "activo")),
         SEPARADOR,
         ItemMenu("Perfil activo", habilitado=False),
-        *(ItemMenu(n, PERFIL, n, marcado=(n == info.perfil_activo)) for n in info.perfiles),
-        ItemMenu("Siguiente perfil", SIGUIENTE),
+        *(ItemMenu(n, PERFIL, n, marcado=(n == info.perfil_activo), atajo=atajo("perfil", n)) for n in info.perfiles),
+        ItemMenu("Siguiente perfil", SIGUIENTE, atajo=atajo("accion", "siguiente")),
         SEPARADOR,
-        ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
+        ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab, atajo=atajo("accion", "comparar")),
         ItemMenu("Programas…", PROGRAMAS),
         ItemMenu("Atajos…", ATAJOS),
         ItemMenu("Iniciar con Windows", ARRANQUE, marcado=info.arranque),
@@ -116,10 +121,12 @@ class Bandeja:
     def _convertir(self, item: ItemMenu):
         if item.separador:
             return pystray.Menu.SEPARATOR
+        # Un tabulador separa el texto de la combinación, que Windows alinea a la derecha (como un acelerador).
+        texto = item.texto + (f"\t{item.atajo}" if item.atajo else "")
         if item.hijos is not None:
-            return pystray.MenuItem(item.texto, pystray.Menu(*[self._convertir(h) for h in item.hijos]))
+            return pystray.MenuItem(texto, pystray.Menu(*[self._convertir(h) for h in item.hijos]))
         return pystray.MenuItem(
-            item.texto,
+            texto,
             self._crear_accion(item.accion, item.argumento),
             checked=None if item.marcado is None else self._crear_casilla(item.marcado),
             default=item.predeterminado,

@@ -449,6 +449,8 @@ class Panel:
         self.btns["descartar"].pack(side="left", padx=(px(8), 0))
         self.btn_programas = Boton(linea2, "Programas…", self.abrir_programas, relleno=10)
         self.btn_programas.pack(side="right")
+        self.btn_atajos = Boton(linea2, "Atajos…", self.abrir_atajos, relleno=10)
+        self.btn_atajos.pack(side="right", padx=(0, px(8)))
 
         canales = tk.Frame(ed, bg=fondo)
         canales.pack(fill="x", pady=(px(12), 0))

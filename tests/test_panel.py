@@ -562,3 +562,30 @@ def test_el_boton_programas_abre_el_dialogo_con_los_procesos_abiertos(montaje):
     raiz, est, abiertos, al_cambiar = llamadas[0]
     assert est is estado and abiertos() == ["juego.exe"] and al_cambiar == ctl.persistir
 
+
+def test_el_boton_atajos_abre_el_dialogo_con_el_gestor_y_los_resultados(montaje):
+    p, estado, ctl, _ = montaje
+    llamadas = []
+    p.abrir_dialogo_atajos = lambda *args: llamadas.append(args)
+    ctl.gestor_atajos = "gestor-falso"
+    ctl.resultados_atajos = {"x": 1}
+    assert visible(p.btn_atajos) and visible(p.btn_programas)
+    p.abrir_atajos()
+    raiz, est, gestor, al_cambiar, resultados = llamadas[0]
+    assert est is estado and gestor == "gestor-falso" and al_cambiar == ctl.persistir and resultados() == {"x": 1}
+
+
+def test_el_boton_atajos_sin_gestor_pasa_none(montaje):
+    p, estado, ctl, _ = montaje
+    llamadas = []
+    p.abrir_dialogo_atajos = lambda *args: llamadas.append(args)
+    p.abrir_atajos()
+    assert llamadas[0][2] is None and llamadas[0][4]() == {}
+
+
+def test_alternar_preciso_actua_como_la_casilla(montaje):
+    p, estado, *_ = montaje
+    p.alternar_preciso()
+    assert estado.preciso and p.var_preciso.get() and all(d.preciso for d in p.deslizadores.values())
+    p.alternar_preciso()
+    assert not estado.preciso and not p.var_preciso.get()

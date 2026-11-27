@@ -104,3 +104,27 @@ def test_iniciar_con_windows_refleja_el_estado_y_envia_su_accion():
     assert por_texto["Iniciar con Windows"].marcado is False and por_texto["Iniciar con Windows"].accion == tray.ARRANQUE
     activado = InfoBandeja(arranque=True, perfiles=("Normal",))
     assert {i.texto: i for i in tray.construir_menu(activado)}["Iniciar con Windows"].marcado is True
+
+
+def test_el_menu_muestra_la_combinacion_a_la_derecha_de_cada_accion():
+    info = InfoBandeja(
+        perfiles=("Normal", "Oscuro"), perfil_activo="Normal",
+        atajos={("accion", "siguiente"): "Ctrl+Alt+P", ("accion", "comparar"): "Ctrl+Alt+B", ("accion", "panel"): "Ctrl+Alt+Mayús+V",
+                ("accion", "activo"): "Ctrl+Alt+V", ("perfil", "Oscuro"): "Ctrl+Alt+2"},
+    )
+    por_texto = {i.texto: i for i in tray.construir_menu(info)}
+    assert por_texto["Siguiente perfil"].atajo == "Ctrl+Alt+P" and por_texto["Comparar (A/B)"].atajo == "Ctrl+Alt+B"
+    assert por_texto["Mostrar panel"].atajo == "Ctrl+Alt+Mayús+V" and por_texto["Activo"].atajo == "Ctrl+Alt+V"
+    assert por_texto["Oscuro"].atajo == "Ctrl+Alt+2" and por_texto["Normal"].atajo is None
+    assert por_texto["Salir (restaura la pantalla)"].atajo is None and por_texto["Atajos…"].atajo is None
+
+
+def test_sin_atajos_el_menu_no_muestra_combinaciones(tmp_path):
+    assert all(i.atajo is None for i in tray.construir_menu(InfoBandeja()))
+
+
+def test_la_bandeja_separa_el_texto_y_la_combinacion_con_un_tabulador():
+    info = InfoBandeja(atajos={("accion", "siguiente"): "Ctrl+Alt+P"})
+    b = Bandeja(lambda *a: None, lambda: info)
+    items = {getattr(i, "text", None): i for i in (b._convertir(m) for m in tray.construir_menu(info))}
+    assert "Siguiente perfil\tCtrl+Alt+P" in items and "Comparar (A/B)" in items

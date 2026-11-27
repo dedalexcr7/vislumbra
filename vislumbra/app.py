@@ -224,6 +224,7 @@ class App:
         self._info = tray.InfoBandeja(
             activo_on=e.activo_on, perfil_activo=e.activo, perfiles=tuple(e.nombres()), ab=e.ab and e.activo_on,
             grupos=tuple(e.grupos()), arranque=self._arranque_activo,
+            atajos={k: c.mostrar() for k, c in e.atajos.elementos()},
         )
         if self.bandeja is not None:
             self.bandeja.actualizar()
@@ -424,6 +425,7 @@ class App:
             return
         self._mapa_registrado = dict(mapa)
         self.resultados_atajos = resultados
+        self._actualizar_info()  # el menú de la bandeja muestra las combinaciones
         fallidos = [(k, r) for k, r in resultados.items() if not r.ok]
         if not fallidos:
             return
