@@ -108,7 +108,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 - **Fase 3 – Atajos y más perfiles:**
   - Atajos globales: siguiente perfil, uno por perfil, A/B, modo preciso y reinicio de emergencia.
   - Duplicar, reordenar, importar y exportar perfiles.
-- **Fase 4 – Perfil por juego (opcional):** el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
+- **Fase 4 – Perfil por juego** (**implementada**, pendiente de probar en un juego; ver `REGISTRO.md`): el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
 - **Fase 6 – Empaquetado (opcional):** `.exe` con PyInstaller y arranque con Windows.
 
