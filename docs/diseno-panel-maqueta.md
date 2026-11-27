@@ -1,8 +1,8 @@
 # Diseño del panel: la maqueta como referencia
 
-**Objetivo del autor:** que el panel real quede **igual que la maqueta aprobada**. Este documento guarda el análisis de la captura (`docs/maqueta-panel.png`) y cómo comprobar que quedan iguales. Es trabajo para una sesión de creación (retoque visual) y su sesión de test, **no está hecho**.
+**Objetivo del autor:** que el panel real quede **igual que la maqueta aprobada**. Este documento guarda el análisis de la captura (`docs/maqueta-panel.png`) y cómo comprobar que quedan iguales. El retoque visual está hecho (ver §4); queda el juicio del autor mirando y la sesión de test.
 
-Maqueta interactiva (fuente de verdad de colores y medidas): https://claude.ai/artifact/FuZBRyF2idJek2YLyuArRr. Solo se analizó la captura; **los valores de abajo son aproximados**, leídos a ojo. Los exactos están en el CSS de la maqueta.
+Maqueta interactiva (fuente de verdad de colores y medidas): https://claude.ai/artifact/FuZBRyF2idJek2YLyuArRr. Las secciones 1 y 2 salen de la captura (aproximadas); los valores exactos, leídos del CSS de la maqueta, están en §4.
 
 ## 1. Lo que muestra la maqueta (columna izquierda: el panel)
 - **Ventana:** unos 537 px de ancho, esquinas redondeadas (~12 px), borde fino y fondo oscuro algo cálido. Cabecera propia: glifo del logo, «Vislumbra» en negrita, ✕ a la derecha y una línea separadora.
@@ -38,3 +38,14 @@ Hay que **verlo**, no basta con leer el código:
 5. **El autor lo juzga mirando**: una captura no sustituye a su ojo (fuentes, antialiasing, DPI alto, tema claro de Windows). Se le entrega la captura y la lista de la sección 1.
 
 **Riesgo:** los widgets propios en `Canvas` cuestan más que los estándar y hay que repetir las pruebas de humo de `test_panel.py`. Se hace en una sesión de creación propia, con plan previo si toca 3 o más archivos.
+
+## 4. Retoque hecho (sesión de creación) y valores exactos
+- **Medidas.** La maqueta mide 490 px de ancho (la captura está ampliada ×1,096). `Panel.ANCHO = 490` y todas las medidas pasan por `widgets.px()`, que aplica el DPI de Tk; las fuentes son de tamaño en píxeles (`widgets.fuente()`).
+- **Colores y radios** (constantes de `vislumbra/widgets.py`): ventana `#1d1d1a` con borde `#34332d`; cabecera `#191916` de 40 px; línea `#2c2b26`; botón `#2a2925` con borde `#45443c` (alto 32, radio 7); campo `#141412`; acento `#c9b98f`; texto `#ece8dc` y `#a7a392`; pista `#3a3933` de 6 px; degradado de la temperatura `#d98a45 → #d8d4c8 → #6f9be0`; punto de «Activo» `#9cc47a`; aviso `#e8b062`; curva `#6a9be0`; tarjeta del editor radio 10; pestañas radio 8 con raya inferior de acento.
+- **Corrección a §1:** la pista de la maqueta **no** lleva tramo relleno desde el neutro (se comprobó en los píxeles de la captura); solo la marca vertical del neutro. La app ya no lo dibuja.
+- **Elementos propios en `Canvas`** (`widgets.py`): `Boton` (también la píldora «● Activo» y los chips), `Casilla`, `Tarjeta`, `TextoMixto` y el logo. El borde de 1 px es un polígono bajo el relleno (el contorno de Tk sale discontinuo en las curvas).
+- **Cabecera propia:** `overrideredirect` (sin barra de Windows ni botón en la barra de tareas); se arrastra desde la cabecera; la ✕ llama a `ocultar_panel`. Esquinas redondeadas y borde de la ventana con `sistema.redondear_ventana` (DWM de Windows 11; en Windows 10 queda cuadrada).
+- **Se mantienen aunque no estén en la maqueta:** «Descartar» (junto a «Borrar») y «Deshacer» (sin la cuenta atrás de la maqueta). El nombre del perfil activo abre un menú con la lista al pulsarlo (sustituye al desplegable).
+- **Bandeja:** `pystray` usa el menú nativo de Windows. Se igualan la estructura y los textos (lista plana bajo la cabecera gris «Perfil activo», punto en el actual, «Mostrar panel» en negrita); no se pueden igualar los colores, las esquinas ni el espaciado. «Mostrar panel» sigue siendo «mostrar u ocultar» (no se toca `app.py`).
+- **Diferencias que quedan:** el texto del resumen sale de `estado.resumen()` («en el 3» frente a «en el monitor 3.» de la maqueta); el menos de los límites es «-» y no «−»; no hay cuenta atrás en «Deshacer».
+- **Comprobar:** `python herramientas/captura_panel.py salida.png` (sin tocar la gamma; la ventana aparece unos segundos) y comparar con `docs/maqueta-panel.png` a la misma anchura.
