@@ -100,3 +100,24 @@ def test_dibujar_logo_pone_tres_formas(ventana):
     widgets.dibujar_logo(c)
     assert len(c.find_all()) == 3
     c.destroy()
+
+
+def test_selector_se_comporta_como_un_combobox_de_solo_lectura(ventana):
+    var, llamadas = tk.StringVar(master=ventana, value="a"), []
+    s = widgets.Selector(ventana, var, ["a", "b"], comando=lambda: llamadas.append(var.get()))
+    assert list(s.cget("values")) == ["a", "b"] and s.cget("state") == "readonly"
+    s.elegir("b")
+    assert var.get() == "b" and llamadas == ["b"]
+    s.configure(values=["x"], state="disabled")
+    assert s.cget("values") == ["x"] and s.cget("state") == "disabled"
+    s._abrir(None)  # desactivado: no abre nada
+    s.destroy()
+
+
+def test_campo_redondo_comparte_la_variable_con_su_entry(ventana):
+    var = tk.StringVar(master=ventana, value="juego.exe")
+    c = widgets.CampoRedondo(ventana, var)
+    assert c.entrada.get() == "juego.exe"
+    var.set("otro.exe")
+    assert c.entrada.get() == "otro.exe"
+    c.destroy()

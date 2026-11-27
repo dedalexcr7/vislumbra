@@ -378,3 +378,110 @@ def dibujar_logo(c: tk.Canvas, lado: int = 16) -> None:
     )
     for puntos, col in formas:
         c.create_polygon([v * k for p in puntos for v in p], fill=col, outline="")
+
+
+# --- Campo de texto y desplegable oscuros ---------------------------------------------------------------------
+class CampoRedondo(tk.Canvas):
+    """Línea de texto con esquinas redondeadas que ocupa el ancho disponible. El ``Entry`` es ``.entrada``."""
+
+    def __init__(self, master, variable: tk.StringVar, alto: int = 32, tam: int = 13):
+        super().__init__(master, width=px(100), height=px(alto), **_lienzo(master))
+        self._alto, self._enfocado = alto, False
+        self.entrada = tk.Entry(
+            self, textvariable=variable, bg=CAMPO, fg=TEXTO, insertbackground=TEXTO, relief="flat", bd=0, highlightthickness=0, font=fuente(tam),
+        )
+        self._ventana = self.create_window(px(10), px(alto) / 2, window=self.entrada, anchor="w", height=px(alto - 12))
+        self.entrada.bind("<FocusIn>", lambda e: self._poner(True), add="+")
+        self.entrada.bind("<FocusOut>", lambda e: self._poner(False), add="+")
+        self.entrada.bind("<Button-1>", lambda e: self.entrada.focus_force(), add="+")  # ventana sin borde: pide el foco
+        self.bind("<Configure>", lambda e: self._dibujar())
+
+    def _poner(self, enfocado: bool) -> None:
+        self._enfocado = enfocado
+        self._dibujar()
+
+    def _dibujar(self) -> None:
+        self.delete("borde")
+        w, h = max(self.winfo_width(), 2), px(self._alto)
+        rect_redondeado(self, 0.5, 0.5, w - 0.5, h - 0.5, px(7), fill=CAMPO, outline=ACENTO if self._enfocado else BORDE_BOTON, tags="borde")
+        self.tag_lower("borde")
+        self.itemconfigure(self._ventana, width=max(1, w - px(20)))
+
+
+class Selector(tk.Canvas):
+    """Desplegable oscuro con la API básica de un ``ttk.Combobox`` de solo lectura: ``textvariable``, ``values``, ``state``
+    y el evento virtual ``<<ComboboxSelected>>``. Al pulsarlo abre la lista de valores."""
+
+    def __init__(
+        self, master, variable: tk.StringVar, valores=(), estado: str = "readonly", alto: int = 32, tam: int = 13,
+        comando: Callable[[], None] | None = None,
+    ):
+        super().__init__(master, width=px(100), height=px(alto), cursor="hand2", takefocus=False, **_lienzo(master))
+        self._var, self._valores, self._estado, self._alto, self._encima = variable, list(valores), estado, alto, False
+        self._fuente = tkfont.Font(root=master, font=fuente(tam))
+        self._tam, self._comando = tam, comando
+        variable.trace_add("write", lambda *a: self._dibujar())
+        self.bind("<Configure>", lambda e: self._dibujar())
+        self.bind("<Enter>", lambda e: self._hover(True))
+        self.bind("<Leave>", lambda e: self._hover(False))
+        self.bind("<ButtonRelease-1>", self._abrir)
+
+    def configure(self, cnf=None, **kw):
+        if cnf:
+            kw = {**cnf, **kw}
+        if "values" in kw:
+            self._valores = list(kw.pop("values"))
+        if "state" in kw:
+            self._estado = str(kw.pop("state"))
+        if kw:
+            super().configure(**kw)
+        self._dibujar()
+
+    config = configure
+
+    def cget(self, clave):
+        if clave == "values":
+            return self._valores
+        if clave == "state":
+            return self._estado
+        return super().cget(clave)
+
+    def _hover(self, encima: bool) -> None:
+        self._encima = encima
+        self._dibujar()
+
+    def _abrir(self, _e) -> None:
+        if self._estado == "disabled" or not self._valores:
+            return
+        menu = tk.Menu(self, tearoff=0, bg=BOTON, fg=TEXTO, activebackground=ACENTO, activeforeground=TEXTO_OSCURO, bd=0, font=fuente(self._tam))
+        for v in self._valores:
+            menu.add_command(label=v, command=lambda v=v: self.elegir(v))
+        try:
+            menu.tk_popup(self.winfo_rootx(), self.winfo_rooty() + self.winfo_height())
+        finally:
+            menu.grab_release()
+
+    def elegir(self, valor: str) -> None:
+        self._var.set(valor)
+        if self._comando is not None:  # el lienzo no recibe eventos virtuales mientras está oculto (pruebas)
+            self._comando()
+        self.event_generate("<<ComboboxSelected>>")
+
+    def _dibujar(self) -> None:
+        self.delete("all")
+        w, h = max(self.winfo_width(), 2), px(self._alto)
+        base = self.cget("bg")
+        apagado = self._estado == "disabled"
+        borde = ACENTO if self._encima and not apagado else BORDE_BOTON
+        texto, flecha = TEXTO, TEXTO_SUAVE
+        if apagado:
+            borde, texto, flecha = mezclar(base, borde, 0.45), mezclar(base, TEXTO, 0.45), mezclar(base, TEXTO_SUAVE, 0.45)
+        rect_redondeado(self, 0.5, 0.5, w - 0.5, h - 0.5, px(7), fill=mezclar(base, CAMPO, 0.45) if apagado else CAMPO, outline=borde)
+        disponible, valor = w - px(40), self._var.get()
+        if self._fuente.measure(valor) > disponible:  # no cabe: se recorta con «…»
+            while valor and self._fuente.measure(valor + "…") > disponible:
+                valor = valor[:-1]
+            valor += "…"
+        self.create_text(px(10), h / 2, text=valor, fill=texto, font=self._fuente, anchor="w")
+        x, y = w - px(16), h / 2
+        self.create_line(x - px(5), y - px(2), x, y + px(3), x + px(5), y - px(2), fill=flecha, width=max(2, px(2)), capstyle="round", joinstyle="round")

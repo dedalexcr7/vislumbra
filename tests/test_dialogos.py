@@ -100,8 +100,7 @@ def test_anadir_un_programa_escribiendo_su_nombre_o_una_ruta(dialogo_programas):
 
 def test_elegir_un_programa_abierto_rellena_el_campo(dialogo_programas):
     d, *_ = dialogo_programas
-    d.var_abiertos.set("juego.exe")
-    d.combo_abiertos.event_generate("<<ComboboxSelected>>")
+    d.combo_abiertos.elegir("juego.exe")  # lo que hace pulsar un valor de la lista
     assert d.var_exe.get() == "juego.exe"
 
 

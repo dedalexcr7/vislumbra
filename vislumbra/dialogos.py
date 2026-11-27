@@ -9,15 +9,14 @@ from __future__ import annotations
 
 import tkinter as tk
 from collections.abc import Callable
-from tkinter import ttk
 
 from . import sistema
 from .estado import Estado
 from .perfiles import ErrorPerfil
 from .programas import ALCANCE_ACTIVO, ALCANCE_VENTANA, alcance_de_monitor, clave_de_alcance
 from .widgets import (
-    ACENTO, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, TEXTO, Boton, fuente, nueva_posicion, px,
-    rect_redondeado,
+    ACENTO, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, PISTA, TEXTO, Boton, CampoRedondo, Selector, Tarjeta,
+    fuente, nueva_posicion, px, rect_redondeado,
 )
 
 ACEPTAR = "__aceptar__"  # valor de un botón que devuelve el texto escrito
@@ -189,9 +188,11 @@ class DialogoProgramas(Dialogo):
         self._monitores = {self._etiqueta_monitor(m): m.clave for m in estado.monitores}
         marco = tk.Frame(self._cuerpo, bg=FONDO_VENTANA)
         marco.pack(before=self._fila, fill="x", pady=(px(12), 0))
+        caja = Tarjeta(marco, CAMPO, BORDE_BOTON, radio=7, padx=4, pady=4)
+        caja.pack(fill="x")
         self.lista = tk.Listbox(
-            marco, height=6, width=52, bg=CAMPO, fg=TEXTO, selectbackground=BORDE_BOTON, selectforeground=TEXTO, relief="flat",
-            highlightthickness=1, highlightbackground=BORDE_BOTON, activestyle="none", exportselection=False, font=fuente(12),
+            caja, height=6, width=52, bg=CAMPO, fg=TEXTO, selectbackground=PISTA, selectforeground=TEXTO, relief="flat", bd=0,
+            highlightthickness=0, activestyle="none", exportselection=False, font=fuente(12),
         )
         self.lista.pack(fill="x")
         self.lista.bind("<<ListboxSelect>>", lambda e: self._cargar_seleccion())
@@ -199,32 +200,27 @@ class DialogoProgramas(Dialogo):
         self.lbl_forma = tk.Label(marco, text="Añadir un programa", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12, True), anchor="w")
         self.lbl_forma.pack(fill="x", pady=(px(10), 0))
         self.var_exe = tk.StringVar(master=self)
-        self.entrada = tk.Entry(
-            marco, textvariable=self.var_exe, bg=CAMPO, fg=TEXTO, insertbackground=TEXTO, relief="flat", highlightthickness=1,
-            highlightbackground=BORDE_BOTON, highlightcolor=ACENTO, font=fuente(12),
-        )
-        self.entrada.pack(fill="x", pady=(px(4), 0), ipady=px(3))
-        self.entrada.bind("<Button-1>", lambda e: self.entrada.focus_force(), add="+")
+        self.campo_exe = CampoRedondo(marco, self.var_exe, tam=12)
+        self.campo_exe.pack(fill="x", pady=(px(4), 0))
+        self.entrada = self.campo_exe.entrada
         tk.Label(marco, text="Escribe su nombre (juego.exe) o elígelo entre los abiertos:", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(11), anchor="w").pack(fill="x", pady=(px(4), 0))
         self.var_abiertos = tk.StringVar(master=self)
-        self.combo_abiertos = ttk.Combobox(marco, textvariable=self.var_abiertos, state="readonly", values=self._abiertos(), font=fuente(12))
+        self.combo_abiertos = Selector(marco, self.var_abiertos, self._abiertos(), tam=12, comando=lambda: self.var_exe.set(self.var_abiertos.get()))
         self.combo_abiertos.pack(fill="x", pady=(px(2), 0))
-        self.combo_abiertos.bind("<<ComboboxSelected>>", lambda e: self.var_exe.set(self.var_abiertos.get()))
         fila = tk.Frame(marco, bg=FONDO_VENTANA)
         fila.pack(fill="x", pady=(px(8), 0))
         tk.Label(fila, text="Perfil", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), width=8, anchor="w").pack(side="left")
         self.var_perfil = tk.StringVar(master=self, value=estado.activo)
-        self.combo_perfil = ttk.Combobox(fila, textvariable=self.var_perfil, state="readonly", values=estado.nombres(), width=24, font=fuente(12))
-        self.combo_perfil.pack(side="left")
+        self.combo_perfil = Selector(fila, self.var_perfil, estado.nombres(), tam=12)
+        self.combo_perfil.pack(side="left", fill="x", expand=True)
         fila2 = tk.Frame(marco, bg=FONDO_VENTANA)
         fila2.pack(fill="x", pady=(px(6), 0))
         tk.Label(fila2, text="Aplicar a", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), width=8, anchor="w").pack(side="left")
         self.var_alcance = tk.StringVar(master=self, value=ETIQUETA_VENTANA)
-        self.combo_alcance = ttk.Combobox(fila2, textvariable=self.var_alcance, state="readonly", values=list(ETIQUETAS_ALCANCE), width=24, font=fuente(12))
-        self.combo_alcance.pack(side="left")
-        self.combo_alcance.bind("<<ComboboxSelected>>", lambda e: self._alcance_cambiado())
+        self.combo_alcance = Selector(fila2, self.var_alcance, list(ETIQUETAS_ALCANCE), tam=12, comando=self._alcance_cambiado)
+        self.combo_alcance.pack(side="left", fill="x", expand=True)
         self.var_monitor = tk.StringVar(master=self, value=next(iter(self._monitores), ""))
-        self.combo_monitor = ttk.Combobox(marco, textvariable=self.var_monitor, state="disabled", values=list(self._monitores), font=fuente(12))
+        self.combo_monitor = Selector(marco, self.var_monitor, list(self._monitores), estado="disabled", tam=12)
         self.combo_monitor.pack(fill="x", pady=(px(4), 0))
         botones = tk.Frame(marco, bg=FONDO_VENTANA)
         botones.pack(fill="x", pady=(px(10), 0))
