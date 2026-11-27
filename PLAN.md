@@ -114,7 +114,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
   - **Aparcado para después:** duplicar, reordenar, importar y exportar perfiles y atajos; ajuste rápido de gamma o brillo con atajos.
 - **Fase 4 – Perfil por juego** (**implementada**, pendiente de probar en un juego; ver `REGISTRO.md`): el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
-- **Fase 6 – Empaquetado** (plan aprobado: `docs/plan-fase-6.md`; se hace **después de la fase 3**):
+- **Fase 6 – Empaquetado** (**implementada**, pendiente de test con la app compilada abierta; plan: `docs/plan-fase-6.md`; detalle en `REGISTRO.md`):
   - PyInstaller en carpeta (`onedir`) repartida en `.zip`, con **dos ejecutables**: `Vislumbra.exe` (sin consola) y `vislumbra-cli.exe` (con consola, para `--list`, `--reset`, `--perfil`).
   - Arreglo de `stdout`/`stderr` nulos sin consola (hoy `--help`, `--version` y los errores de uso fallan) y registro de errores en `%APPDATA%\Vislumbra\vislumbra.log`.
   - Script de compilación y prueba de humo en `herramientas/`; `pyinstaller` solo en `requirements-build.txt`.
@@ -128,7 +128,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 
 ## Antes de hacer público el repositorio
 - Buscar rutas personales, correos, nombres y claves en todo el historial, no solo en los archivos actuales.
-- Licencia GPL v3 elegida: comprobar que todas las dependencias (`pystray`, `Pillow`, `screen_brightness_control` si llega a usarse, etc.; `keyboard` se quita en la fase 3) son compatibles con GPL v3 y dejar constancia de ello.
+- Licencia GPL v3 elegida: comprobar que todas las dependencias (`pystray`, `Pillow`, `screen_brightness_control` si llega a usarse, etc.; `keyboard` ya se quitó; `pyinstaller` solo compila: GPLv2+ con excepción del cargador, comprobado el 2026-11-27) son compatibles con GPL v3 y dejar constancia de ello.
 - Decidir con el autor qué nombre va en el aviso de copyright («Copyright 2026 …»): nombre real o solo el usuario de GitHub.
 - Revisar que el README no afirme nada sin verificar (compatibilidad con anticheats, por ejemplo).
 - Confirmar la autoría y la licencia del logo (ver «Logo» en «Pendiente de decidir»).
