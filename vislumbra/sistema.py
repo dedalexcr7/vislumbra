@@ -140,6 +140,12 @@ def colocar_abajo_derecha(area: tuple[int, int, int, int], ancho: int, alto: int
     return x, y
 
 
+def limitar_al_area(x: int, y: int, ancho: int, alto: int, area: tuple[int, int, int, int]) -> tuple[int, int]:
+    """Esquina de la ventana movida lo justo para que quepa en el área de trabajo (si no cabe, manda la esquina superior izquierda)."""
+    izq, arriba, der, abajo = area
+    return max(izq, min(x, der - ancho)), max(arriba, min(y, abajo - alto))
+
+
 def redondear_ventana(ventana, borde: str | None = None) -> bool:
     """Pide a Windows 11 esquinas redondeadas (y el color del borde ``#rrggbb``) para una ventana de Tk sin barra.
 

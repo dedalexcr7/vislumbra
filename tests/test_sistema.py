@@ -112,3 +112,12 @@ def test_redondear_ventana_no_falla_con_una_ventana_invalida():
             raise RuntimeError("sin ventana")
 
     assert sistema.redondear_ventana(Falsa(), "#34332d") is False
+
+
+def test_limitar_al_area_mueve_la_ventana_lo_justo():
+    area = (0, 0, 1000, 800)
+    assert sistema.limitar_al_area(100, 100, 300, 300, area) == (100, 100)  # ya cabe
+    assert sistema.limitar_al_area(900, 100, 300, 300, area) == (700, 100)  # se sale por la derecha
+    assert sistema.limitar_al_area(100, 700, 300, 300, area) == (100, 500)  # y por abajo
+    assert sistema.limitar_al_area(-50, -20, 300, 300, area) == (0, 0)
+    assert sistema.limitar_al_area(5, 5, 2000, 2000, area) == (0, 0)  # no cabe: manda la esquina superior izquierda

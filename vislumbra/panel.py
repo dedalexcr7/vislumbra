@@ -372,6 +372,7 @@ class Panel:
             pass
         r.protocol("WM_DELETE_WINDOW", self.ctl.ocultar_panel)
         r.bind("<space>", self._tecla_espacio)
+        r.bind("<Configure>", self._al_cambiar_tamano)
         self.marco = tk.Frame(r, bg=FONDO_VENTANA)
         self.marco.pack(fill="both", expand=True, padx=1, pady=1)
         tk.Frame(self.marco, width=px(self.ANCHO - 2), height=1, bg=FONDO_VENTANA).pack()  # fija el ancho
@@ -428,10 +429,10 @@ class Panel:
         tit.pack(side="left")
         self.lbl_editando = TextoMixto(tit, " ", 13, TEXTO_SUAVE, 14, TEXTO, negrita2=True)
         self.lbl_editando.pack(side="left")
-        self.lbl_sin_guardar = tk.Label(tit, text="● sin guardar", bg=fondo, fg=AVISO, font=fuente(11))
-        self.lbl_sin_guardar.pack(side="left", padx=px(8))
         linea2 = tk.Frame(ed, bg=fondo)
         linea2.pack(fill="x", pady=(px(8), 0))
+        # En la segunda línea: junto al título no cabe y ensancharía la ventana.
+        self.lbl_sin_guardar = tk.Label(linea2, text="● sin guardar", bg=fondo, fg=AVISO, font=fuente(11))
         self.btns = {
             "guardar": Boton(linea1, "Guardar", self._guardar, relleno=10),
             "como": Boton(linea1, "Guardar como…", self._guardar_como, relleno=10),
@@ -530,6 +531,15 @@ class Panel:
         rx, ry, vx, vy = self._arrastre_ini
         x, y = nueva_posicion((vx, vy), (rx, ry), (e.x_root, e.y_root))
         self.raiz.geometry(f"+{x}+{y}")
+
+    def _al_cambiar_tamano(self, e) -> None:
+        """Si la ventana crece (perfil fijo, avisos, ajuste fuerte) y se sale de la pantalla, se recoloca."""
+        if e.widget is not self.raiz or not self._colocada or not self.visible:
+            return
+        r = self.raiz
+        x, y = sistema.limitar_al_area(r.winfo_x(), r.winfo_y(), r.winfo_width(), r.winfo_height(), sistema.area_de_trabajo())
+        if (x, y) != (r.winfo_x(), r.winfo_y()):
+            r.geometry(f"+{x}+{y}")
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------
     def _preguntar_texto(self, titulo: str, mensaje: str, inicial: str) -> str | None:
@@ -637,7 +647,7 @@ class Panel:
         self.lbl_editando.configure(text=f"Editando «{p.nombre}»")
         sin = e.sin_guardar(p.nombre)
         if sin:
-            self.lbl_sin_guardar.pack(side="left", padx=px(8))
+            self.lbl_sin_guardar.pack(side="left", padx=px(12))
         else:
             self.lbl_sin_guardar.pack_forget()
         for clave, b in self.btns.items():
