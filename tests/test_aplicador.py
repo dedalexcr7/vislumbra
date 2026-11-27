@@ -220,21 +220,21 @@ def test_la_vigilancia_tolera_una_lectura_fallida(montaje):
     assert [a for a in avisos if a.tipo != "aplicado"] == []
 
 
-def test_conflicto_tras_mas_de_5_reaplicaciones_en_60_s(montaje):
+def test_conflicto_tras_mas_de_10_reaplicaciones_en_10_s(montaje):
     ap, sesion, avisos, _ = montaje
     ap.pedir({1: R1})
     ap.procesar_cambio()
     for i in range(MAX_REAPLICACIONES):
         sesion.pantalla[1] = list(IDENTIDAD)
-        ap.vigilar(2.0 * i)
-        assert sesion.pantalla[1] == R1  # las 5 primeras veces se reaplica
+        ap.vigilar(0.5 * i)
+        assert sesion.pantalla[1] == R1  # las 10 primeras veces se reaplica
     sesion.pantalla[1] = list(IDENTIDAD)
-    ap.vigilar(12.0)  # la sexta: conflicto
+    ap.vigilar(5.5)  # la undécima: conflicto
     assert sesion.pantalla[1] == IDENTIDAD and ap.en_conflicto == {1}
     conflicto = [a for a in avisos if a.tipo == "conflicto"]
     assert len(conflicto) == 1 and conflicto[0].monitores == (1,)
     llamadas = len(sesion.llamadas)
-    ap.vigilar(14.0)
+    ap.vigilar(6.0)
     assert len(sesion.llamadas) == llamadas and len([a for a in avisos if a.tipo == "conflicto"]) == 1
 
 
@@ -244,9 +244,9 @@ def test_las_reaplicaciones_antiguas_no_cuentan(montaje):
     ap.procesar_cambio()
     for i in range(MAX_REAPLICACIONES):
         sesion.pantalla[1] = list(IDENTIDAD)
-        ap.vigilar(float(i))
+        ap.vigilar(0.5 * i)
     sesion.pantalla[1] = list(IDENTIDAD)
-    ap.vigilar(VENTANA_CONFLICTO + 10.0)  # ya pasó más de un minuto
+    ap.vigilar(VENTANA_CONFLICTO + 10.0)  # ya pasó la ventana de 10 s
     assert sesion.pantalla[1] == R1 and ap.en_conflicto == set()
 
 
@@ -256,7 +256,7 @@ def test_un_cambio_del_usuario_sale_del_conflicto(montaje):
     ap.procesar_cambio()
     for i in range(MAX_REAPLICACIONES + 1):
         sesion.pantalla[1] = list(IDENTIDAD)
-        ap.vigilar(float(i))
+        ap.vigilar(0.5 * i)
     assert ap.en_conflicto == {1}
     ap.pedir({1: R2})
     ap.procesar_cambio()
@@ -269,9 +269,9 @@ def test_un_monitor_en_conflicto_no_afecta_a_los_demas(montaje):
     ap.procesar_cambio()
     for i in range(MAX_REAPLICACIONES + 1):
         sesion.pantalla[1] = list(IDENTIDAD)
-        ap.vigilar(float(i))
+        ap.vigilar(0.5 * i)
     sesion.pantalla[2] = list(IDENTIDAD)
-    ap.vigilar(10.0)
+    ap.vigilar(6.0)
     assert sesion.pantalla[2] == R2 and ap.en_conflicto == {1}
 
 
@@ -369,3 +369,21 @@ def test_parar_sin_haber_iniciado_no_falla_y_se_puede_repetir():
     ap.parar()
     ap.parar()
     assert not ap.vivo
+
+
+def test_una_rampa_reiniciada_por_un_juego_se_recupera_en_un_ciclo_de_vigilancia(montaje):
+    """Entrar y salir de un juego varias veces seguidas (alt-tab) nunca dispara el conflicto."""
+    ap, sesion, _, _ = montaje
+    ap.pedir({1: R1})
+    ap.procesar_cambio()
+    for i in range(30):  # 30 entradas o salidas en 3 minutos
+        sesion.pantalla[1] = list(IDENTIDAD)
+        ap.vigilar(6.0 * i)
+        assert sesion.pantalla[1] == R1
+    assert ap.en_conflicto == set()
+
+
+def test_el_intervalo_de_vigilancia_por_defecto_es_corto():
+    from vislumbra.aplicador import INTERVALO_VIGILANCIA
+
+    assert INTERVALO_VIGILANCIA <= 0.3

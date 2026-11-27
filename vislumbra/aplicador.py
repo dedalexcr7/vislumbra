@@ -6,8 +6,8 @@ siempre **el último** (con un intervalo mínimo entre escrituras). ``None`` sig
 la rampa original». Cada pocos segundos vigila:
 
 - si algo cambió una rampa (un juego, otro programa), la vuelve a aplicar;
-- si tiene que hacerlo más de 5 veces en 60 s, deja de hacerlo para ese monitor y avisa
-  de un conflicto (para no pelearse con otra herramienta);
+- si tiene que hacerlo más de 10 veces en 10 s seguidos, deja de hacerlo para ese monitor y avisa
+  de un conflicto (los alt-tab o cambios de modo de un juego, sueltos, no cuentan) (para no pelearse con otra herramienta);
 - si cambió la lista de monitores, avisa y se detiene: la app recrea la sesión (en el hilo
   principal, por las señales) y un aplicador nuevo.
 
@@ -26,10 +26,10 @@ from dataclasses import dataclass
 from . import color, display
 from .color import Rampa
 
-INTERVALO_VIGILANCIA = 2.0
+INTERVALO_VIGILANCIA = 0.25  # al entrar o salir de un juego la rampa se restaura en menos de 0,3 s
 INTERVALO_MINIMO = 0.015
-VENTANA_CONFLICTO = 60.0
-MAX_REAPLICACIONES = 5
+VENTANA_CONFLICTO = 10.0
+MAX_REAPLICACIONES = 10  # más de 10 en 10 s seguidos: otra herramienta pelea con la app
 
 
 @dataclass(frozen=True)
