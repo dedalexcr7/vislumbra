@@ -49,24 +49,23 @@ class ItemMenu:
     predeterminado: bool = False  # clic izquierdo en el icono
     hijos: tuple["ItemMenu", ...] | None = None
     separador: bool = False
+    habilitado: bool = True  # False: texto gris que hace de cabecera de sección
 
 
 SEPARADOR = ItemMenu(separador=True)
 
 
 def construir_menu(info: InfoBandeja) -> list[ItemMenu]:
-    """Menú de la bandeja (ver ``docs/plan-fase-2.md`` §6)."""
+    """Menú de la bandeja: como la maqueta, con la lista de perfiles plana bajo la cabecera «Perfil activo»."""
     return [
-        ItemMenu("Mostrar / ocultar panel", MOSTRAR_OCULTAR, predeterminado=True),
+        ItemMenu("Mostrar panel", MOSTRAR_OCULTAR, predeterminado=True),
         ItemMenu("Activo", ALTERNAR_ACTIVO, marcado=info.activo_on),
         SEPARADOR,
-        ItemMenu(
-            "Perfil activo",
-            hijos=tuple(ItemMenu(n, PERFIL, n, marcado=(n == info.perfil_activo)) for n in info.perfiles),
-        ),
+        ItemMenu("Perfil activo", habilitado=False),
+        *(ItemMenu(n, PERFIL, n, marcado=(n == info.perfil_activo)) for n in info.perfiles),
         ItemMenu("Siguiente perfil", SIGUIENTE),
-        ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
         SEPARADOR,
+        ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
         ItemMenu("Salir (restaura la pantalla)", SALIR),
     ]
 
@@ -114,6 +113,7 @@ class Bandeja:
             self._crear_accion(item.accion, item.argumento),
             checked=None if item.marcado is None else self._crear_casilla(item.marcado),
             default=item.predeterminado,
+            enabled=item.habilitado,
             radio=item.marcado is not None and item.accion == PERFIL,
         )
 

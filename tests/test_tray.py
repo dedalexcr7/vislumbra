@@ -19,7 +19,7 @@ def textos(menu):
 def test_el_menu_tiene_las_entradas_del_plan():
     menu = tray.construir_menu(INFO)
     assert textos(menu) == [
-        "Mostrar / ocultar panel", "Activo", "Perfil activo", "Siguiente perfil", "Comparar (A/B)",
+        "Mostrar panel", "Activo", "Perfil activo", "Normal", "Oscuro", "Código", "Siguiente perfil", "Comparar (A/B)",
         "Salir (restaura la pantalla)",
     ]
     assert sum(i.separador for i in menu) == 2
@@ -38,17 +38,21 @@ def test_activo_y_ab_reflejan_el_estado():
     assert por_texto["Activo"].marcado is False and por_texto["Comparar (A/B)"].marcado is True
 
 
-def test_un_perfil_por_entrada_con_el_actual_marcado():
-    submenu = next(i for i in tray.construir_menu(INFO) if i.texto == "Perfil activo")
-    assert [h.texto for h in submenu.hijos] == ["Normal", "Oscuro", "Código"]
-    assert [h.marcado for h in submenu.hijos] == [False, True, False]
-    assert all(h.accion == tray.PERFIL and h.argumento == h.texto for h in submenu.hijos)
+def test_la_lista_de_perfiles_es_plana_bajo_una_cabecera_gris():
+    menu = tray.construir_menu(INFO)
+    i = next(n for n, it in enumerate(menu) if it.texto == "Perfil activo")
+    assert menu[i].habilitado is False and menu[i].accion is None and menu[i].hijos is None
+    perfiles = menu[i + 1:i + 4]
+    assert [h.texto for h in perfiles] == ["Normal", "Oscuro", "Código"]
+    assert [h.marcado for h in perfiles] == [False, True, False]
+    assert all(h.accion == tray.PERFIL and h.argumento == h.texto for h in perfiles)
+    assert all(it.hijos is None for it in menu)  # sin submenús
 
 
 def test_un_nombre_de_perfil_raro_se_envia_tal_cual():
     info = InfoBandeja(perfiles=("Normal", "Mi «perfil» & más"), perfil_activo="Normal")
-    submenu = next(i for i in tray.construir_menu(info) if i.hijos is not None)
-    assert submenu.hijos[1].argumento == "Mi «perfil» & más"
+    perfil = next(i for i in tray.construir_menu(info) if i.texto == "Mi «perfil» & más")
+    assert perfil.argumento == "Mi «perfil» & más"
 
 
 def test_texto_emergente_como_en_el_plan():
@@ -78,14 +82,13 @@ def test_la_bandeja_traduce_el_menu_y_envia_las_acciones():
     recibidas = []
     b = Bandeja(lambda accion, arg: recibidas.append((accion, arg)), lambda: INFO)
     items = [b._convertir(i) for i in tray.construir_menu(INFO)]
-    assert len(items) == 8
+    assert len(items) == 11
     por_texto = {getattr(i, "text", None): i for i in items}
     por_texto["Siguiente perfil"](b.icono)  # un MenuItem se invoca con el icono
     por_texto["Activo"](b.icono)
     assert recibidas == [(tray.SIGUIENTE, None), (tray.ALTERNAR_ACTIVO, None)]
-    submenu = por_texto["Perfil activo"].submenu
-    assert [i.text for i in submenu.items] == ["Normal", "Oscuro", "Código"]
-    submenu.items[2](b.icono)
+    assert por_texto["Perfil activo"].enabled is False  # cabecera de sección, no se puede pulsar
+    por_texto["Código"](b.icono)
     assert recibidas[-1] == (tray.PERFIL, "Código")
     assert b.icono.title == "Vislumbra · activo · Oscuro (1, 2) · Código (3)"
 
