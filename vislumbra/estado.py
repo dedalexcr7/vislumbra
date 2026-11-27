@@ -128,13 +128,17 @@ class Estado:
             for m in self.monitores
         ]
 
-    def resumen(self) -> str:
-        """«Oscuro» en los monitores 1 y 2 · «Código» en el 3"""
+    def grupos(self) -> list[tuple[str, tuple[int, ...]]]:
+        """Perfil de cada monitor, agrupado: [("Oscuro", (1, 2)), ("Código", (3,))]."""
         grupos: dict[str, list[int]] = {}
         for m in self.monitores:
             grupos.setdefault(self.perfil_de_monitor(m.numero).nombre, []).append(m.numero)
+        return [(nombre, tuple(nums)) for nombre, nums in grupos.items()]
+
+    def resumen(self) -> str:
+        """«Oscuro» en los monitores 1 y 2 · «Código» en el 3"""
         partes = []
-        for i, (nombre, nums) in enumerate(grupos.items()):
+        for i, (nombre, nums) in enumerate(self.grupos()):
             if len(nums) == 1:
                 donde = f"el monitor {nums[0]}" if i == 0 else f"el {nums[0]}"
             else:

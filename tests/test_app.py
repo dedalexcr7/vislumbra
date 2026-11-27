@@ -1,0 +1,438 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Pruebas de ``vislumbra.app`` con sesión, monitores y bandeja falsos: no tocan la pantalla.
+
+Usan una ventana de Tk oculta, objetos del sistema con nombres aleatorios y la carpeta temporal
+(nunca el ``%APPDATA%`` real). La cola se procesa a mano con ``_procesar_cola`` (sin ``mainloop``).
+"""
+
+import time
+import uuid
+
+import pytest
+
+from vislumbra import app as app_mod
+from vislumbra import color, display, perfiles, tray
+from vislumbra.app import App
+from vislumbra.color import Ajuste
+from vislumbra.perfiles import Configuracion, Perfil
+
+IDENTIDAD = color.rampa_identidad()
+
+
+def monitores(n=3):
+    return [
+        display.Monitor(i, rf"\\.\PRUEBA{i}", "Adaptador de pruebas", None, i == 2, id_monitor=f"clave-{i}")
+        for i in range(1, n + 1)
+    ]
+
+
+class SesionFalsa:
+    def __init__(self, ms):
+        self.monitores = list(ms)
+        self.pantalla = {m.numero: list(IDENTIDAD) for m in ms}
+        self.originales = {m.numero: list(IDENTIDAD) for m in ms}
+        self.modificados = []
+        self.cerrada = 0
+        self.iniciada = False
+
+    def iniciar(self):
+        self.iniciada = True
+
+    def cerrar(self):
+        self.cerrada += 1
+        for n in self.pantalla:
+            self.pantalla[n] = list(self.originales[n])
+
+    def originales_modificados(self):
+        return self.modificados
+
+    def aplicar_por_monitor(self, rampas):
+        for n, r in rampas.items():
+            self.pantalla[n] = list(self.originales[n] if r is None else r)
+        return []
+
+
+class Entorno:
+    """Todo lo que hace falta para probar una ``App``."""
+
+    def __init__(self, ventana, tmp_path, n_monitores=3, conf=None):
+        self.ms = monitores(n_monitores)
+        self.sesiones: list[SesionFalsa] = []
+        self.prefijo = rf"Local\VislumbraPrueba{uuid.uuid4().hex}"
+        self.ruta_config = tmp_path / "config.json"
+        self.ruta_peticion = tmp_path / "peticion.txt"
+        if conf is not None:
+            perfiles.guardar_en(conf, self.ruta_config)
+        self.ventana = ventana
+        self.apps: list[App] = []
+
+    def crear_sesion(self, ms):
+        s = SesionFalsa(ms)
+        self.sesiones.append(s)
+        return s
+
+    @property
+    def sesion(self):
+        return self.sesiones[-1]
+
+    def leer(self, m):
+        return list(self.sesion.pantalla[m.numero])
+
+    def nueva(self, ventana=None):
+        a = App(
+            raiz=ventana or self.ventana, ruta_config=self.ruta_config, ruta_peticion_=self.ruta_peticion,
+            listar=lambda: list(self.ms), leer=self.leer, crear_sesion=self.crear_sesion,
+            prefijo_sistema=self.prefijo, con_bandeja=False, intervalo_vigilancia=0.05,
+        )
+        self.apps.append(a)
+        return a
+
+    def cerrar(self):
+        for a in self.apps:
+            a._parar_todo()
+
+
+def configuracion():
+    c = Configuracion()
+    c.guardar(Perfil("Oscuro", Ajuste.uniforme(0.0, 7.5, 1.7)))
+    c.guardar(Perfil("Código", Ajuste.uniforme(-20.0, 0.0, 1.0, 6000.0)))
+    c.perfil_activo = "Oscuro"
+    return c
+
+
+@pytest.fixture
+def entorno(ventana, tmp_path):
+    e = Entorno(ventana, tmp_path, conf=configuracion())
+    yield e
+    e.cerrar()
+
+
+def esperar(condicion, segundos=3.0):
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        if condicion():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def procesar(app, hasta=lambda: True, segundos=3.0):
+    """Procesa la cola de Tk a mano hasta que se cumpla ``hasta``."""
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        app._procesar_cola()
+        if hasta():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+RAMPA_OSCURO = color.construir_rampa_segura(Ajuste.uniforme(0.0, 7.5, 1.7))
+
+
+# --- Arranque ------------------------------------------------------------------------------------------------------
+def test_al_arrancar_aplica_lo_guardado_y_muestra_el_panel(entorno):
+    a = entorno.nueva()
+    assert a.iniciar() is True
+    assert entorno.sesion.iniciada
+    assert esperar(lambda: all(entorno.sesion.pantalla[n] == RAMPA_OSCURO for n in (1, 2, 3)))
+    assert a.estado.activo == "Oscuro" and a.panel.visible and a.aplicador.vivo
+    assert hasattr(a.raiz, "winfo_exists") and a.panel.var_activo.get() == "Oscuro"
+
+
+def test_sin_configuracion_todo_empieza_en_normal_y_no_se_escribe_nada(ventana, tmp_path):
+    e = Entorno(ventana, tmp_path)
+    try:
+        a = e.nueva()
+        assert a.iniciar() is True
+        time.sleep(0.2)
+        assert a.estado.activo == "Normal" and all(r is None for r in a.estado.rampas().values())
+        assert all(e.sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3))
+    finally:
+        e.cerrar()
+
+
+def test_una_configuracion_danada_se_aparta_y_se_avisa(ventana, tmp_path):
+    e = Entorno(ventana, tmp_path)
+    e.ruta_config.write_text("esto no es json", encoding="utf-8")
+    try:
+        a = e.nueva()
+        a.iniciar()
+        assert a.estado.activo == "Normal" and len(a.avisos_arranque) == 1
+        assert "no era válida" in a.panel.lbl_aviso.cget("text")
+        assert list(tmp_path.glob("config.dañado-*.json"))
+    finally:
+        e.cerrar()
+
+
+def test_un_monitor_con_rampa_original_modificada_se_avisa(entorno):
+    original = entorno.nueva()
+    original._crear_sesion = lambda ms: _con_modificado(entorno, ms)
+    original.iniciar()
+    assert "ya tenía una rampa modificada" in original.panel.lbl_aviso.cget("text")
+
+
+def _con_modificado(entorno, ms):
+    s = entorno.crear_sesion(ms)
+    s.modificados = [ms[0]]
+    return s
+
+
+def test_sin_monitores_no_arranca_y_no_deja_nada_a_medias(entorno):
+    entorno.ms = []
+    a = entorno.nueva()
+    with pytest.raises(display.MonitorNoEncontrado):
+        a.iniciar()
+    assert not app_mod.hay_app_abierta(entorno.prefijo)
+
+
+# --- Instancia única, eventos y peticiones --------------------------------------------------------------------------------
+def test_una_segunda_instancia_muestra_el_panel_de_la_primera_y_sale(entorno, ventana):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.ocultar()
+    assert not a.panel.visible
+    segunda = entorno.nueva()
+    assert segunda.iniciar() is False  # no crea nada: no hay sesión ni hilos
+    assert len(entorno.sesiones) == 1
+    assert procesar(a, lambda: a.panel.visible)
+
+
+def test_hay_app_abierta_mientras_esta_en_marcha_y_deja_de_haberla_al_cerrar(entorno):
+    assert not app_mod.hay_app_abierta(entorno.prefijo)
+    a = entorno.nueva()
+    a.iniciar()
+    assert app_mod.hay_app_abierta(entorno.prefijo)
+    a._parar_todo()
+    assert not app_mod.hay_app_abierta(entorno.prefijo)
+
+
+def test_reset_desde_la_terminal_desactiva_la_app_y_suelta_la_pantalla(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    assert app_mod.pedir_desactivar(entorno.prefijo) is True
+    assert procesar(a, lambda: not a.estado.activo_on)
+    assert esperar(lambda: all(entorno.sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3)))
+    assert "Desactivado por --reset" in a.panel.lbl_aviso.cget("text") and not a.panel.var_on.get()
+
+
+def test_pedir_desactivar_sin_app_abierta_devuelve_false(entorno):
+    assert app_mod.pedir_desactivar(entorno.prefijo) is False
+
+
+def test_perfil_siguiente_desde_la_terminal(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert app_mod.pedir_perfil(app_mod.PETICION_SIGUIENTE, entorno.ruta_peticion, entorno.prefijo) is True
+    assert procesar(a, lambda: a.estado.activo == "Código")
+    assert not entorno.ruta_peticion.exists()  # la petición se borra al leerla
+    assert perfiles.cargar(entorno.ruta_config)[0].perfil_activo == "Código"  # y el cambio se guarda
+    assert esperar(lambda: entorno.sesion.pantalla[1] == color.construir_rampa_segura(Ajuste.uniforme(-20.0, 0.0, 1.0, 6000.0)))
+    assert "Perfil cambiado desde la terminal" in a.panel.lbl_aviso.cget("text")
+
+
+def test_perfil_por_nombre_desde_la_terminal_y_nombre_inexistente(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    app_mod.pedir_perfil("perfil:Normal", entorno.ruta_peticion, entorno.prefijo)
+    assert procesar(a, lambda: a.estado.activo == "Normal")
+    app_mod.pedir_perfil("perfil:NoExiste", entorno.ruta_peticion, entorno.prefijo)
+    assert procesar(a, lambda: "no existe" in a.panel.lbl_aviso.cget("text"))
+    assert a.estado.activo == "Normal"
+    app_mod.pedir_perfil("cualquier cosa", entorno.ruta_peticion, entorno.prefijo)
+    assert procesar(a, lambda: "no reconocida" in a.panel.lbl_aviso.cget("text"))
+
+
+def test_pedir_perfil_sin_app_abierta_no_escribe_nada(entorno):
+    assert app_mod.pedir_perfil("siguiente", entorno.ruta_peticion, entorno.prefijo) is False
+    assert not entorno.ruta_peticion.exists()
+
+
+# --- Bandeja ----------------------------------------------------------------------------------------------------------------------
+def test_acciones_de_la_bandeja(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a._atender_bandeja(tray.SIGUIENTE, None)
+    assert a.estado.activo == "Código"
+    a._atender_bandeja(tray.PERFIL, "Oscuro")
+    assert a.estado.activo == "Oscuro"
+    a._atender_bandeja(tray.COMPARAR, None)
+    assert a.estado.ab and a._info.ab
+    a._atender_bandeja(tray.COMPARAR, None)
+    a._atender_bandeja(tray.ALTERNAR_ACTIVO, None)
+    assert not a.estado.activo_on and not a._info.activo_on
+    a._atender_bandeja(tray.COMPARAR, None)  # desactivado: no hay nada que comparar
+    assert not a.estado.ab
+    a._atender_bandeja(tray.PERFIL, "NoExiste")
+    assert "no existe" in a.panel.lbl_aviso.cget("text")
+    a._atender_bandeja(tray.MOSTRAR_OCULTAR, None)
+    assert not a.panel.visible
+    a._atender_bandeja(tray.MOSTRAR_OCULTAR, None)
+    assert a.panel.visible
+
+
+def test_las_acciones_de_la_bandeja_pasan_por_la_cola(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a._accion_de_bandeja(tray.SIGUIENTE, None)  # lo que haría el hilo de pystray
+    assert a.estado.activo == "Oscuro"  # aún no se ha procesado
+    assert procesar(a, lambda: a.estado.activo == "Código")
+
+
+def test_la_info_de_la_bandeja_refleja_los_monitores_y_perfiles(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert a._info.grupos == (("Oscuro", (1, 2, 3)),) and a._info.perfiles == ("Normal", "Oscuro", "Código")
+    assert tray.texto_emergente(a._info) == "Vislumbra · activo · Oscuro (1, 2, 3)"
+
+
+# --- Avisos del hilo aplicador --------------------------------------------------------------------------------------------------
+def test_avisos_del_aplicador_se_muestran_en_el_panel(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a._atender_aviso(Aviso("rechazo", "Windows ha rechazado la rampa.", (1,)))
+    assert "Windows no aceptó la rampa: Windows ha rechazado" in a.panel.lbl_aviso.cget("text")
+    a._atender_aviso(Aviso("conflicto", "Algo cambia la rampa del monitor 1.", (1,)))
+    assert "Algo cambia" in a.panel.lbl_aviso.cget("text")
+    a._atender_aviso(Aviso("aplicado", monitores=(1,)))
+    a._atender_aviso(Aviso("lectura", "no coincide"))
+    assert a.panel.lbl_aviso.cget("text") == "no coincide"
+
+
+Aviso = app_mod.Aviso
+
+
+def test_si_otro_programa_cambia_la_rampa_la_app_la_vuelve_a_aplicar(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    entorno.sesion.pantalla[1] = list(IDENTIDAD)  # un juego la reinicia
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+
+
+def test_cambio_en_la_lista_de_monitores_recrea_la_sesion(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    primera = entorno.sesion
+    entorno.ms = monitores(2)  # se desconectó el tercero
+    assert procesar(a, lambda: len(entorno.sesiones) == 2)
+    assert primera.cerrada >= 1 and entorno.sesion is not primera and entorno.sesion.iniciada
+    assert [m.numero for m in a.estado.monitores] == [1, 2] and a.aplicador.vivo
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    assert "Cambió la lista de monitores" in a.panel.lbl_aviso.cget("text")
+
+
+def test_si_se_quedan_sin_monitores_la_app_se_pone_en_pausa(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    entorno.ms = []
+    assert procesar(a, lambda: "en pausa" in a.panel.lbl_aviso.cget("text"))
+
+
+# --- Persistencia y cierre ---------------------------------------------------------------------------------------------------------
+def test_persistir_escribe_el_perfil_activo_y_las_asignaciones(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.estado.cambiar_activo("Normal")
+    a.estado.fijar_monitor(3, "Código")
+    a.persistir()
+    c, avisos = perfiles.cargar(entorno.ruta_config)
+    assert avisos == [] and c.perfil_activo == "Normal" and c.monitores["clave-3"] == "Código"
+
+
+def test_persistir_no_escribe_perfiles_sin_guardar(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.deslizadores["gamma"]._pedir(2.0)  # edita «Oscuro» sin guardar
+    a.persistir()
+    c, _ = perfiles.cargar(entorno.ruta_config)
+    assert c.obtener("Oscuro").ajuste.r.gamma == 1.7
+
+
+def test_un_error_al_guardar_se_muestra_y_no_rompe_la_app(entorno, monkeypatch):
+    a = entorno.nueva()
+    a.iniciar()
+
+    def falla(*_):
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr(perfiles, "guardar_en", falla)
+    a.persistir()
+    assert "No se pudo guardar" in a.panel.lbl_aviso.cget("text")
+
+
+def test_salir_restaura_la_pantalla_y_libera_todo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    hilo = a._hilo_eventos
+    a.salir()
+    s = entorno.sesion
+    assert s.cerrada >= 1 and all(s.pantalla[n] == IDENTIDAD for n in (1, 2, 3))
+    assert not a.aplicador.vivo and not hilo.is_alive() and not app_mod.hay_app_abierta(entorno.prefijo)
+    a._parar_todo()  # idempotente
+    nueva = entorno.nueva()
+    assert nueva.iniciar() is True  # el mutex quedó libre
+
+
+def test_salir_con_cambios_sin_guardar_pregunta(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.deslizadores["gamma"]._pedir(2.0)
+    a.panel.preguntar_guardar = lambda: None  # Cancelar
+    a.salir()
+    assert a.aplicador.vivo and app_mod.hay_app_abierta(entorno.prefijo)
+    a.panel.preguntar_guardar = lambda: True  # Guardar
+    a.salir()
+    assert not a.aplicador.vivo
+    assert perfiles.cargar(entorno.ruta_config)[0].obtener("Oscuro").ajuste.r.gamma == 2.0
+
+
+def test_salir_descartando_no_guarda_los_cambios(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.deslizadores["gamma"]._pedir(2.0)
+    a.panel.preguntar_guardar = lambda: False  # Descartar
+    a.salir()
+    assert perfiles.cargar(entorno.ruta_config)[0].obtener("Oscuro").ajuste.r.gamma == 1.7
+
+
+def test_ctrl_c_o_cierre_de_consola_dentro_de_tk_cierra_sin_preguntar(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.panel.deslizadores["gamma"]._pedir(2.0)
+    a._excepcion_tk(KeyboardInterrupt, KeyboardInterrupt(), None)
+    assert not a.aplicador.vivo and entorno.sesion.cerrada >= 1
+    assert all(entorno.sesion.pantalla[n] == IDENTIDAD for n in (1, 2, 3))
+
+
+def test_un_error_interno_en_tk_se_muestra_y_la_app_sigue(entorno, capsys):
+    a = entorno.nueva()
+    a.iniciar()
+    a._excepcion_tk(ValueError, ValueError("fallo raro"), None)
+    assert "Error interno: fallo raro" in a.panel.lbl_aviso.cget("text") and a.aplicador.vivo
+    assert "Error interno" in capsys.readouterr().err
+
+
+def test_ocultar_el_panel_avisa_solo_la_primera_vez(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    avisos = []
+
+    class BandejaFalsa:
+        def avisar(self, titulo, mensaje):
+            avisos.append(titulo)
+
+        def actualizar(self):
+            pass
+
+        def detener(self):
+            pass
+
+    a.bandeja = BandejaFalsa()
+    a.ocultar_panel()
+    a.panel.mostrar()
+    a.ocultar_panel()
+    assert avisos == ["Vislumbra sigue en marcha"] and not a.panel.visible
