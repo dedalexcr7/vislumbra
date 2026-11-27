@@ -2,6 +2,15 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-27 · planificación (fase 3: atajos globales)
+- **Hecho:** plan de la fase 3 aprobado por el autor y guardado en `docs/plan-fase-3.md`. Las ocho decisiones de §9 se aprobaron con la opción recomendada. `PLAN.md` actualizado (fase 3, archivos `atajos.py` y `teclado.py`, mecanismo y riesgos).
+- **Qué incluye:** atajos globales (siguiente y anterior perfil, uno por perfil, A/B, activo, panel, modo preciso y emergencia) y el menú «Atajos…» para grabarlos, cambiarlos y quitarlos, con detección de conflictos y aviso de AltGr. Valores por defecto: Ctrl+Alt+P, Ctrl+Alt+Mayús+P, Ctrl+Alt+B, Ctrl+Alt+V, Ctrl+Alt+Mayús+V y Ctrl+Alt+0 (emergencia).
+- **Decisión de diseño:** `RegisterHotKey` en un hilo propio y **no** la librería `keyboard`, que en su código instalado usa un gancho global de bajo nivel (`WH_KEYBOARD_LL`) que ve todas las teclas. La emergencia llama a `Aplicador.emergencia()` sin pasar por Tk. Sin superposición en pantalla (podría causar tirones en un juego sin bordes; hipótesis).
+- **Verificado por ejecución (sin tocar la gamma):** `pytest -q` con 690 en verde y 6 saltadas; sondeo de combinaciones en este equipo (cada una se registró un instante y se liberó): ocupadas Ctrl+Alt+L/M/Supr, Ctrl+Mayús+X/F5/F12/F20, Ctrl+Alt+Mayús+O/F1/F5/F13–F21, Alt+Mayús+R/F10 y muchas con Win; con Ctrl+Alt, solo la Q escribe un carácter (AltGr). **Verificado por lectura:** el gancho de `keyboard`; la cola y `_atender_bandeja` de la app; el JSON opcional de `config.json`.
+- **Sin verificar:** que los atajos salten con un juego en primer plano (sin bordes y pantalla completa exclusiva) o con una ventana como administrador; que ningún anticheat reaccione; el evento de teclado de Tk al grabar; `ToUnicodeEx` en otras distribuciones; el tabulador de los menús de Win32 con `pystray`. El sondeo de combinaciones vale solo para este equipo.
+- **Pendiente de la creación:** quitar `keyboard` de `requirements.txt` y actualizar el `README.md` (su línea de licencias aún dice que `keyboard` se usará en la fase 3).
+- **Siguiente:** sesión de creación de la fase 3, siguiendo `docs/plan-fase-3.md`; después, sesión de planificación del `.exe` (fase 6).
+
 ## 2026-11-27 · creación (cierre del retoque visual y relevo para el empaquetado)
 - **Hecho desde la entrada del retoque visual** (detalle en esa entrada, más abajo): el diálogo «Programas y perfiles» (de otra sesión) se pasó al aspecto de la maqueta con `widgets.Selector` y `widgets.CampoRedondo` (sustituyen a `ttk.Combobox` y `Entry`) y la lista en una `Tarjeta`; los desplegables y la lista de perfiles del panel ya no se reabren al pulsar con la lista abierta (`Selector.PAUSA_REAPERTURA`, 0,6 s). Último commit de código: `0878524`.
 - **Verificado por ejecución:** `pytest -q` 690 en verde y 6 saltadas; captura del diálogo de programas.

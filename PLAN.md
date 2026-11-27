@@ -62,7 +62,7 @@ La búsqueda web muestra herramientas parecidas: **GammaBoost+** (Steam, para Wi
   4. temperatura: multiplicar cada canal por el factor RGB del Kelvin elegido (6500 K = neutro)
   5. limitar a [0, 1] y escalar a 16 bits
 - **Brillo por hardware** (opcional, fase aparte): `screen_brightness_control` (WMI en portátiles, DDC/CI en monitores externos). Es independiente del brillo por software de la rampa.
-- **Atajos globales:** librería `keyboard`. **Bandeja:** `pystray`. **Panel:** `tkinter` (sin dependencias pesadas).
+- **Atajos globales:** `RegisterHotKey` de Windows en un hilo propio (`ctypes`), **sin la librería `keyboard`**, que usa un gancho global que ve todas las teclas (ver `docs/plan-fase-3.md`). **Bandeja:** `pystray`. **Panel:** `tkinter` (sin dependencias pesadas).
 - **Persistencia:** `%APPDATA%\Vislumbra\config.json` (perfiles, perfil activo y asignación por monitor; nunca dentro del repositorio).
 - **Seguridad:** guardar la rampa original al arrancar y restaurarla al salir (`atexit`); opción «Restablecer» en la bandeja; atajo de emergencia (propuesta: `Ctrl+Alt+0`); rangos limitados; confirmación con reversión automática a los 10 s para valores extremos; reaplicar la rampa cada pocos segundos por si un juego la reinicia.
 
@@ -87,7 +87,8 @@ vislumbra/
 │  ├─ panel.py        (fase 2) panel emergente
 │  ├─ tray.py         (fase 2) icono de bandeja
 │  ├─ app.py          (fase 2) arranque y cierre de la app
-│  ├─ hotkeys.py      (fase 3) atajos globales
+│  ├─ atajos.py       (fase 3) combinaciones de teclas, validación y valores por defecto (lógica pura)
+│  ├─ teclado.py      (fase 3) atajos globales con RegisterHotKey en su propio hilo
 │  └─ watcher.py      perfil automático por proceso (fase 4)
 ├─ assets/            (fase 2) logo e iconos
 ├─ herramientas/      (fase 2) generar_iconos.py
@@ -105,9 +106,11 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
   - **Cada monitor sigue al perfil activo o tiene un perfil fijo**; por ejemplo, un monitor de código con su propio ajuste que no cambia al cambiar el perfil activo.
   - Cambio de perfil desde el panel, desde la bandeja y con `--perfil`.
   - Vigilancia que vuelve a aplicar la rampa si algo la reinicia, e instancia única.
-- **Fase 3 – Atajos y más perfiles:**
-  - Atajos globales: siguiente perfil, uno por perfil, A/B, modo preciso y reinicio de emergencia.
-  - Duplicar, reordenar, importar y exportar perfiles.
+- **Fase 3 – Atajos globales y menú para personalizarlos** (plan aprobado: `docs/plan-fase-3.md`):
+  - Acciones: siguiente y anterior perfil, uno por perfil (también «Normal»), A/B, activo, mostrar u ocultar el panel, modo preciso y **emergencia** (suelta la pantalla sin pasar por la interfaz).
+  - Menú «Atajos…» para grabar, cambiar y quitar combinaciones, con detección de conflictos con otras aplicaciones y aviso de AltGr, y aviso opcional al usar un atajo (ninguno, sonido o notificación).
+  - Se quita la dependencia `keyboard`.
+  - **Aparcado para después:** duplicar, reordenar, importar y exportar perfiles y atajos; ajuste rápido de gamma o brillo con atajos.
 - **Fase 4 – Perfil por juego** (**implementada**, pendiente de probar en un juego; ver `REGISTRO.md`): el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
 - **Fase 6 – Empaquetado (opcional, siguiente):** `.exe` con PyInstaller y arranque con Windows (este último, solo con OK explícito). Puntos a resolver y relevo en la entrada del 2026-11-27 de `REGISTRO.md`.
@@ -115,12 +118,12 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 ## Riesgos conocidos
 - Windows ignora rampas muy alejadas de la lineal; el efecto puede ser más suave que en RivaTuner antiguo. Esto se mide en la primera sesión de test antes de pasar a la fase 5.
 - Algunos monitores externos no aceptan DDC/CI; el brillo por hardware puede no funcionar.
-- `keyboard` puede requerir permisos elevados para atajos globales en ciertos contextos.
+- Los atajos con `RegisterHotKey` pueden no saltar con una ventana ejecutada como administrador, o con un juego en pantalla completa exclusiva (sin verificar; se prueba en el test de la fase 3). Una combinación solo la puede tener una aplicación.
 - Si la app muere sin restaurar, la rampa queda aplicada hasta reiniciar o ejecutar `--reset`.
 
 ## Antes de hacer público el repositorio
 - Buscar rutas personales, correos, nombres y claves en todo el historial, no solo en los archivos actuales.
-- Licencia GPL v3 elegida: comprobar que todas las dependencias (`pystray`, `keyboard`, `screen_brightness_control`, etc.) son compatibles con GPL v3 y dejar constancia de ello.
+- Licencia GPL v3 elegida: comprobar que todas las dependencias (`pystray`, `Pillow`, `screen_brightness_control` si llega a usarse, etc.; `keyboard` se quita en la fase 3) son compatibles con GPL v3 y dejar constancia de ello.
 - Decidir con el autor qué nombre va en el aviso de copyright («Copyright 2026 …»): nombre real o solo el usuario de GitHub.
 - Revisar que el README no afirme nada sin verificar (compatibilidad con anticheats, por ejemplo).
 - Confirmar la autoría y la licencia del logo (ver «Logo» en «Pendiente de decidir»).
