@@ -7,7 +7,10 @@ import sys
 import pytest
 
 from vislumbra import procesos, programas
-from vislumbra.programas import Asociacion, ErrorPrograma, SeguimientoProgramas, buscar, normalizar_exe
+from vislumbra.programas import (
+    ALCANCE_ACTIVO, ALCANCE_VENTANA, Asociacion, ErrorPrograma, SeguimientoMonitores, SeguimientoProgramas, alcance_de_monitor,
+    buscar, clave_de_alcance, normalizar_alcance, normalizar_exe,
+)
 
 
 # --- procesos (solo lee la lista de procesos) ------------------------------------------------------------
@@ -74,3 +77,52 @@ def test_reabrir_un_programa_lo_pone_el_ultimo():
 
 def test_varios_a_la_vez_en_el_primer_muestreo_es_estable():
     assert SeguimientoProgramas().actualizar({"b.exe", "a.exe"}) == SeguimientoProgramas().actualizar({"a.exe", "b.exe"})
+
+
+# --- Alcance de la asociación ---------------------------------------------------------------------------------------
+def test_una_asociacion_por_defecto_cambia_el_perfil_activo():
+    assert Asociacion("a.exe", "Oscuro").alcance == ALCANCE_ACTIVO
+
+
+def test_alcance_de_monitor_ida_y_vuelta():
+    assert clave_de_alcance(alcance_de_monitor("MONITOR\\XYZ\\0001")) == "MONITOR\\XYZ\\0001"
+    assert clave_de_alcance(ALCANCE_VENTANA) is None and clave_de_alcance(ALCANCE_ACTIVO) is None
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("activo", "activo"), ("ventana", "ventana"), ("monitor:abc", "monitor:abc"),
+    ("monitor:", "activo"), ("otra cosa", "activo"), (None, "activo"), (5, "activo"), ("monitor:" + "x" * 500, "activo"),
+])
+def test_normalizar_alcance_cae_al_perfil_activo_si_no_es_valido(texto, esperado):
+    assert normalizar_alcance(texto) == esperado
+
+
+# --- Monitor donde está cada programa -----------------------------------------------------------------------------------
+def test_se_recuerda_el_ultimo_monitor_conocido_mientras_el_programa_siga_abierto():
+    s = SeguimientoMonitores()
+    assert s.actualizar({"juego.exe"}, {"juego.exe": "D1"}) == {"juego.exe": "D1"}
+    assert s.actualizar({"juego.exe"}, {}) == {"juego.exe": "D1"}  # minimizado o alt-tab: sin ventana visible
+    assert s.actualizar({"juego.exe"}, {"juego.exe": "D2"}) == {"juego.exe": "D2"}  # lo arrastraron a otro monitor
+    assert s.actualizar(set(), {}) == {}  # se cerró: se olvida
+    assert s.actualizar({"juego.exe"}, {}) == {}  # reabierto sin ventana todavía: no se sabe dónde
+
+
+def test_cada_programa_tiene_su_monitor():
+    s = SeguimientoMonitores()
+    assert s.actualizar({"a.exe", "b.exe"}, {"a.exe": "D1", "b.exe": "D3"}) == {"a.exe": "D1", "b.exe": "D3"}
+    assert s.actualizar({"b.exe"}, {}) == {"b.exe": "D3"}
+
+
+# --- Ventanas reales (solo lectura) ----------------------------------------------------------------------------------------
+def test_monitores_de_ventanas_sin_programas_o_inexistentes_da_vacio():
+    assert procesos.monitores_de_ventanas([]) == {}
+    assert procesos.monitores_de_ventanas(["no_existe_jamas.exe"]) == {}
+
+
+def test_monitores_de_ventanas_devuelve_dispositivos_de_monitores_reales():
+    from vislumbra import display
+
+    abiertos = procesos.nombres_en_ejecucion()
+    resultado = procesos.monitores_de_ventanas(abiertos)  # lee las ventanas visibles de todo lo abierto
+    dispositivos = {m.dispositivo for m in display.listar_monitores()}
+    assert all(d in dispositivos for d in resultado.values())
