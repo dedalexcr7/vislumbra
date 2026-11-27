@@ -24,7 +24,7 @@ from pathlib import Path
 
 from . import color
 from .color import Ajuste, AjusteCanal
-from .programas import Asociacion, ErrorPrograma, normalizar_exe
+from .programas import ALCANCE_ACTIVO, Asociacion, ErrorPrograma, normalizar_alcance, normalizar_exe
 
 NORMAL = "Normal"
 VERSION = 1
@@ -239,13 +239,13 @@ class Configuracion:
         i = next((i for i, n in enumerate(nombres) if _clave(n) == _clave(self.perfil_activo)), -1)
         return self.activar(nombres[(i + 1) % len(nombres)])
 
-    def asociar(self, exe: str, perfil: str) -> Asociacion:
+    def asociar(self, exe: str, perfil: str, alcance: str = ALCANCE_ACTIVO) -> Asociacion:
         """Asocia un programa a un perfil (reemplaza la asociación anterior de ese programa)."""
         try:
             e = normalizar_exe(exe)
         except ErrorPrograma as err:
             raise ErrorPerfil(str(err)) from None
-        nueva = Asociacion(e, self.obtener(perfil).nombre)
+        nueva = Asociacion(e, self.obtener(perfil).nombre, normalizar_alcance(alcance))
         self.programas = [a for a in self.programas if a.exe != e] + [nueva]
         return nueva
 
@@ -269,7 +269,7 @@ class Configuracion:
             "version": VERSION,
             "perfiles": [_perfil_a_json(p) for p in self.perfiles],
             "perfil_activo": self.perfil_activo,
-            "programas": [{"exe": a.exe, "perfil": a.perfil} for a in self.programas],
+            "programas": [{"exe": a.exe, "perfil": a.perfil, "alcance": a.alcance} for a in self.programas],
             "monitores": {
                 k: ({"asignacion": ASIGNACION_ACTIVO} if v is None
                     else {"asignacion": ASIGNACION_FIJO, "perfil": v})
@@ -316,7 +316,7 @@ class Configuracion:
                 raise ErrorPerfil(str(err)) from None
             # Un perfil que ya no existe o un programa repetido se ignoran (no hacen dañado el archivo).
             if conf.existe(d["perfil"]) and not any(a.exe == exe for a in conf.programas):
-                conf.programas.append(Asociacion(exe, conf.obtener(d["perfil"]).nombre))
+                conf.programas.append(Asociacion(exe, conf.obtener(d["perfil"]).nombre, normalizar_alcance(d.get("alcance"))))
         return conf
 
 

@@ -23,7 +23,9 @@ from typing import Protocol
 from . import color, escala
 from .color import Ajuste, ErrorColor, Rampa
 from .perfiles import NORMAL, Configuracion, ErrorPerfil, Perfil, PerfilNoEncontrado, _clave
-from .programas import Asociacion, ErrorPrograma, normalizar_exe
+from .programas import (
+    ALCANCE_ACTIVO, ALCANCE_VENTANA, Asociacion, ErrorPrograma, clave_de_alcance, normalizar_alcance, normalizar_exe,
+)
 
 SEGUNDOS_CONFIRMACION = 10.0
 UMBRAL_FUERTE = 0.40 * color.MAXIMO  # desviación de la identidad a partir de la cual el ajuste es «fuerte»
@@ -65,6 +67,7 @@ class Pestana:
     principal: bool
     perfil: str
     fijo: bool
+    programa: str | None = None  # el programa que le puso el perfil ahora mismo, si lo hay
 
 
 class Estado:
@@ -75,6 +78,8 @@ class Estado:
         self._fijos: dict[str, str | None] = dict(conf.monitores)
         self.programas: list[Asociacion] = list(conf.programas)  # programa -> perfil que se activa solo
         self._auto: _Automatico | None = None
+        self._sobre: dict[str, tuple[str, str]] = {}  # clave de monitor -> (programa, perfil) puesto por un programa
+        self.programa_global: str | None = None  # el programa que cambió el perfil activo, si lo hay
         self._trabajo: dict[str, Perfil] = {}  # copias con cambios sin guardar, por nombre
         self._nuevos: list[str] = []  # claves de perfiles creados y aún sin guardar (en orden)
         self.mirado: int = self._monitor_inicial()
@@ -126,7 +131,10 @@ class Estado:
         return fijo if fijo is not None and self._existe(fijo) else None
 
     def perfil_de_monitor(self, numero: int) -> Perfil:
-        fijo = self.asignacion(self._monitor(numero).clave)
+        clave = self._monitor(numero).clave
+        if clave in self._sobre and self._existe(self._sobre[clave][1]):  # un programa abierto en ese monitor
+            return self._perfil(self._sobre[clave][1])
+        fijo = self.asignacion(clave)
         return self._perfil(fijo if fijo is not None else self.activo)
 
     def perfil_editado(self) -> Perfil:
@@ -135,7 +143,7 @@ class Estado:
     def pestanas(self) -> list[Pestana]:
         return [
             Pestana(m.numero, m.principal, self.perfil_de_monitor(m.numero).nombre,
-                    self.asignacion(m.clave) is not None)
+                    self.asignacion(m.clave) is not None, self._sobre.get(m.clave, (None,))[0])
             for m in self.monitores
         ]
 
@@ -209,6 +217,9 @@ class Estado:
     def _reasignar_editado(self, nuevo: str, era_fijo: bool | None = None) -> None:
         """Hace que el monitor mirado use ``nuevo``: cambia el activo si lo seguía, o su perfil fijo."""
         clave = self._monitor(self.mirado).clave
+        if clave in self._sobre:  # el perfil lo puso un programa: se cambia en esa sobreposición
+            self._sobre[clave] = (self._sobre[clave][0], nuevo)
+            return
         if era_fijo is None:
             era_fijo = self.asignacion(clave) is not None
         if era_fijo:
@@ -231,6 +242,12 @@ class Estado:
                 a = replace(a, perfil=nuevo)
             nuevas.append(a)
         self.programas = nuevas
+        for k, (exe, perf) in list(self._sobre.items()):
+            if _clave(perf) == _clave(viejo):
+                if nuevo is None:
+                    del self._sobre[k]
+                else:
+                    self._sobre[k] = (exe, nuevo)
         if self._auto is not None:
             if _clave(self._auto.antes) == _clave(viejo):
                 self._auto.antes = nuevo or NORMAL
@@ -238,16 +255,34 @@ class Estado:
                 self._auto.aplicado = nuevo or NORMAL
 
     # -- programas: perfil automático ----------------------------------------------------------------------------
-    def asociar_programa(self, exe: str, nombre: str) -> str:
-        """Asocia un programa a un perfil; devuelve el nombre normalizado del programa."""
+    def asociar_programa(self, exe: str, nombre: str, alcance: str = ALCANCE_ACTIVO) -> str:
+        """Asocia un programa a un perfil (reemplaza la asociación anterior de ese programa); devuelve su nombre normalizado."""
+        normal = self._exe_valido(exe)
+        self.programas = [a for a in self.programas if a.exe != normal] + [self._asociacion(normal, nombre, alcance)]
+        return normal
+
+    def modificar_programa(self, exe_viejo: str, exe_nuevo: str, nombre: str, alcance: str) -> str:
+        """Cambia una asociación **en su sitio**: puede cambiar el nombre del programa, el perfil y el alcance."""
+        viejo, nuevo = self._exe_valido(exe_viejo), self._exe_valido(exe_nuevo)
+        posicion = next((i for i, a in enumerate(self.programas) if a.exe == viejo), None)
+        if posicion is None:
+            raise ErrorPerfil(f"«{viejo}» no está en la lista de programas.")
+        if nuevo != viejo and any(a.exe == nuevo for a in self.programas):
+            raise ErrorPerfil(f"«{nuevo}» ya está en la lista de programas.")
+        self.programas[posicion] = self._asociacion(nuevo, nombre, alcance)
+        return nuevo
+
+    @staticmethod
+    def _exe_valido(exe: str) -> str:
         try:
-            normal = normalizar_exe(exe)
+            return normalizar_exe(exe)
         except ErrorPrograma as err:
             raise ErrorPerfil(str(err)) from None
+
+    def _asociacion(self, exe: str, nombre: str, alcance: str) -> Asociacion:
         if not self._existe(nombre):
             raise PerfilNoEncontrado(f"el perfil «{nombre}» no existe.")
-        self.programas = [a for a in self.programas if a.exe != normal] + [Asociacion(normal, self._perfil(nombre).nombre)]
-        return normal
+        return Asociacion(exe, self._perfil(nombre).nombre, normalizar_alcance(alcance))
 
     def quitar_programa(self, exe: str) -> None:
         try:
@@ -259,6 +294,10 @@ class Estado:
     def exes_vigilados(self) -> frozenset[str]:
         return frozenset(a.exe for a in self.programas)
 
+    def exes_con_ventana(self) -> frozenset[str]:
+        """Los programas cuyo perfil va al monitor donde está su ventana (hay que mirar las ventanas)."""
+        return frozenset(a.exe for a in self.programas if a.alcance == ALCANCE_VENTANA)
+
     def perfil_de_programa(self, exe: str) -> str | None:
         a = next((a for a in self.programas if a.exe == exe), None)
         return a.perfil if a is not None and self._existe(a.perfil) else None
@@ -267,6 +306,46 @@ class Estado:
     def automatico(self) -> bool:
         """¿El perfil activo lo puso un programa?"""
         return self._auto is not None
+
+    def aplicar_programas(self, orden: list[str], ventanas: dict[str, str]) -> bool:
+        """Recalcula qué perfil pone cada programa abierto. ``orden``: los abiertos, el último que se abrió al final;
+        ``ventanas``: programa -> dispositivo del monitor donde está su ventana. Devuelve ``True`` si algo cambió.
+
+        - Alcance «perfil activo»: cambia el perfil activo (como ``set_automatico``).
+        - Alcance «ventana»: solo el monitor donde está su ventana. «monitor:<clave>»: siempre ese monitor.
+        Sobre un mismo monitor manda el último que se abrió. Nada de esto se guarda.
+        """
+        por_dispositivo = {getattr(m, "dispositivo", None): m for m in self.monitores}
+        por_clave = {m.clave: m for m in self.monitores}
+        sobre: dict[str, tuple[str, str]] = {}
+        global_nombre, global_exe = None, None
+        for exe in orden:
+            a = next((a for a in self.programas if a.exe == exe), None)
+            if a is None or not self._existe(a.perfil):
+                continue
+            nombre = self._perfil(a.perfil).nombre
+            if a.alcance == ALCANCE_VENTANA:
+                m = por_dispositivo.get(ventanas.get(exe))
+                if m is not None:
+                    sobre[m.clave] = (exe, nombre)
+            elif (clave := clave_de_alcance(a.alcance)) is not None:
+                if clave in por_clave:
+                    sobre[clave] = (exe, nombre)
+            else:
+                global_nombre, global_exe = nombre, exe
+        antes = (dict(self._sobre), self.activo)
+        self._sobre = sobre
+        self.set_automatico(global_nombre)
+        self.programa_global = global_exe if self._auto is not None else None
+        return (self._sobre, self.activo) != antes
+
+    def descripcion_programas(self) -> str:
+        """«juego.exe → «Oscuro» en el monitor 2 · otro.exe → «Código»» (vacío si ningún programa manda)."""
+        numeros = {m.clave: m.numero for m in self.monitores}
+        partes = [f"{exe} → «{perfil}» en el monitor {numeros[k]}" for k, (exe, perfil) in self._sobre.items() if k in numeros]
+        if self.programa_global:
+            partes.append(f"{self.programa_global} → «{self.activo}»")
+        return " · ".join(partes)
 
     def set_automatico(self, nombre: str | None) -> bool:
         """Un programa asociado se abrió (``nombre``) o ya no queda ninguno (``None``).

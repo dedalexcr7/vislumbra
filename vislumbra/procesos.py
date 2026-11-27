@@ -98,7 +98,7 @@ AREA_MINIMA = 200 * 150  # las ventanas más pequeñas (ayudas, avisos) no cuent
 
 def monitores_de_ventanas(programas: Collection[str]) -> dict[str, str]:
     """Para cada programa de ``programas`` con una ventana visible: el dispositivo del monitor donde está
-    (``\\.\DISPLAY1``). Cuenta la ventana visible más grande; se ignoran las minimizadas, las de herramienta, las
+    (por ejemplo ``DISPLAY1``). Cuenta la ventana visible más grande; se ignoran las minimizadas, las de herramienta, las
     ocultas y las diminutas. Los programas sin ventana visible no aparecen. Solo lee: no toca ninguna ventana.
     """
     if not programas:

@@ -311,3 +311,18 @@ def test_programas_con_perfil_inexistente_o_repetidos_se_ignoran_sin_danar(tmp_p
     ruta.write_text(json.dumps(base), encoding="utf-8")
     conf, avisos = perfiles.cargar(ruta)
     assert avisos == [] and [(x.exe, x.perfil) for x in conf.programas] == [("a.exe", "P"), ("c.exe", "Normal")]
+
+
+def test_el_alcance_se_guarda_y_se_lee_y_lo_desconocido_cae_al_perfil_activo(tmp_path, conf):
+    conf.asociar("a.exe", "Oscuro")
+    conf.asociar("b.exe", "Código", "ventana")
+    conf.asociar("c.exe", "Normal", "monitor:CLAVE-1")
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    leida, _ = perfiles.cargar(ruta)
+    assert [(x.exe, x.alcance) for x in leida.programas] == [("a.exe", "activo"), ("b.exe", "ventana"), ("c.exe", "monitor:CLAVE-1")]
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    datos["programas"][1]["alcance"] = "algo raro"
+    del datos["programas"][0]["alcance"]  # un archivo anterior a esta versión
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    leida, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and [x.alcance for x in leida.programas] == ["activo", "activo", "monitor:CLAVE-1"]

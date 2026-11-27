@@ -538,3 +538,165 @@ def test_los_programas_con_perfiles_sin_guardar_no_se_persisten(e):
     assert e.conf_persistible().programas == []
     e.guardar()
     assert [a.exe for a in e.conf_persistible().programas] == ["juego.exe"]
+
+
+# --- Programas por monitor (alcance) ---------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class MonD:
+    numero: int
+    clave: str
+    principal: bool = False
+    dispositivo: str = ""
+
+
+MONS_D = [MonD(1, "m-1", False, "D1"), MonD(2, "m-2", True, "D6"), MonD(3, "m-3", False, "D7")]
+
+
+def con_todo_fijo():
+    """El caso del autor: todos los monitores con perfil fijo y el principal con el activo."""
+    est = Estado(configuracion(), MONS_D)
+    est.cambiar_activo("Oscuro")
+    est.fijar_monitor(1, "Código")
+    est.fijar_monitor(3, "Normal")
+    return est
+
+
+def test_un_programa_con_alcance_ventana_solo_cambia_el_monitor_donde_esta():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Normal", "ventana")
+    assert est.aplicar_programas(["juego.exe"], {"juego.exe": "D7"}) is True
+    assert est.perfil_de_monitor(3).es_normal and est.perfil_de_monitor(1).nombre == "Código"
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    assert est.perfil_de_monitor(1).nombre == "Oscuro" and est.perfil_de_monitor(2).nombre == "Oscuro"
+    assert est.activo == "Oscuro" and not est.automatico  # no cambia el perfil activo
+    assert est.descripcion_programas() == "juego.exe → «Oscuro» en el monitor 1"
+    assert [(p.numero, p.perfil, p.programa) for p in est.pestanas()] == [(1, "Oscuro", "juego.exe"), (2, "Oscuro", None), (3, "Normal", None)]
+
+
+def test_al_cerrarse_el_programa_el_monitor_vuelve_a_su_perfil_fijo():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    assert est.perfil_de_monitor(1).nombre == "Oscuro"
+    assert est.aplicar_programas([], {}) is True
+    assert est.perfil_de_monitor(1).nombre == "Código" and est.descripcion_programas() == ""
+    assert est.aplicar_programas([], {}) is False  # sin cambios
+
+
+def test_si_la_ventana_se_mueve_a_otro_monitor_el_perfil_la_sigue():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D7"})
+    assert est.perfil_de_monitor(1).nombre == "Código" and est.perfil_de_monitor(3).nombre == "Oscuro"
+
+
+def test_un_monitor_concreto_no_depende_de_donde_este_la_ventana():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "monitor:m-3")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    assert est.perfil_de_monitor(3).nombre == "Oscuro" and est.perfil_de_monitor(1).nombre == "Código"
+    est.aplicar_programas(["juego.exe"], {})  # sin ventana visible: igual
+    assert est.perfil_de_monitor(3).nombre == "Oscuro"
+
+
+def test_un_monitor_concreto_que_no_esta_conectado_no_hace_nada():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "monitor:otro")
+    assert est.aplicar_programas(["juego.exe"], {}) is False
+
+
+def test_ventana_sin_saber_donde_esta_no_cambia_nada():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    assert est.aplicar_programas(["juego.exe"], {}) is False
+    assert est.aplicar_programas(["juego.exe"], {"juego.exe": "D99"}) is False  # monitor desconocido
+
+
+def test_sobre_un_mismo_monitor_manda_el_ultimo_que_se_abrio():
+    est = con_todo_fijo()
+    est.asociar_programa("a.exe", "Oscuro", "ventana")
+    est.asociar_programa("b.exe", "Normal", "ventana")
+    est.aplicar_programas(["a.exe", "b.exe"], {"a.exe": "D1", "b.exe": "D1"})
+    assert est.perfil_de_monitor(1).es_normal
+    est.aplicar_programas(["a.exe"], {"a.exe": "D1"})
+    assert est.perfil_de_monitor(1).nombre == "Oscuro"
+
+
+def test_dos_programas_en_monitores_distintos_cada_uno_el_suyo():
+    est = con_todo_fijo()
+    est.asociar_programa("a.exe", "Oscuro", "ventana")
+    est.asociar_programa("b.exe", "Normal", "ventana")
+    est.aplicar_programas(["a.exe", "b.exe"], {"a.exe": "D1", "b.exe": "D6"})
+    assert est.perfil_de_monitor(1).nombre == "Oscuro" and est.perfil_de_monitor(2).es_normal
+
+
+def test_los_alcances_se_combinan_con_el_perfil_activo_global():
+    est = con_todo_fijo()
+    est.asociar_programa("global.exe", "Código", "activo")
+    est.asociar_programa("local.exe", "Normal", "ventana")
+    est.aplicar_programas(["global.exe", "local.exe"], {"local.exe": "D7"})
+    assert est.activo == "Código" and est.automatico and est.perfil_de_monitor(3).es_normal
+    assert est.descripcion_programas() == "local.exe → «Normal» en el monitor 3 · global.exe → «Código»"
+    est.aplicar_programas([], {})
+    assert est.activo == "Oscuro" and est.perfil_de_monitor(3).es_normal is True  # el fijo de 3 es Normal
+
+
+def test_las_sobreposiciones_no_se_guardan_ni_cambian_el_activo_guardado():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Normal", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    c = est.conf_persistible()
+    assert c.perfil_activo == "Oscuro" and c.monitores["m-1"] == "Código"
+    assert [(a.exe, a.perfil, a.alcance) for a in c.programas] == [("juego.exe", "Normal", "ventana")]
+
+
+def test_editar_el_perfil_de_un_monitor_con_sobreposicion_edita_ese_perfil():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    est.mirar(1)
+    assert est.perfil_editado().nombre == "Oscuro"
+    est.mover("gamma", 2.0)
+    assert est.valor("gamma") == 2.0 and est.sin_guardar("Oscuro")
+
+
+def test_editar_un_monitor_con_sobreposicion_a_normal_crea_perfil_n_en_la_sobreposicion():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Normal", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    est.mirar(1)
+    r = est.mover("gamma", 1.4)
+    assert r.perfil_creado == "Perfil 1" and est.perfil_de_monitor(1).nombre == "Perfil 1"
+    assert est.asignacion("m-1") == "Código" and est.activo == "Oscuro"  # lo demás sin tocar
+
+
+def test_renombrar_o_borrar_un_perfil_arregla_las_sobreposiciones():
+    est = con_todo_fijo()
+    est.asociar_programa("juego.exe", "Oscuro", "ventana")
+    est.aplicar_programas(["juego.exe"], {"juego.exe": "D1"})
+    est.mirar(1)
+    est.renombrar("Noche")
+    assert est.perfil_de_monitor(1).nombre == "Noche" and est.programas[0].perfil == "Noche"
+    est.borrar()
+    assert est.perfil_de_monitor(1).nombre == "Código" and est.programas == []
+
+
+def test_modificar_un_programa_sin_borrarlo():
+    est = con_todo_fijo()
+    est.asociar_programa("a.exe", "Oscuro", "ventana")
+    est.asociar_programa("b.exe", "Código", "activo")
+    assert est.modificar_programa("a.exe", "A2.EXE", "Normal", "monitor:m-3") == "a2.exe"
+    assert [(a.exe, a.perfil, a.alcance) for a in est.programas] == [("a2.exe", "Normal", "monitor:m-3"), ("b.exe", "Código", "activo")]  # mismo sitio
+    est.modificar_programa("b.exe", "b.exe", "Oscuro", "ventana")
+    assert est.programas[1].perfil == "Oscuro" and est.programas[1].alcance == "ventana"
+    with pytest.raises(ErrorPerfil, match="ya está"):
+        est.modificar_programa("b.exe", "a2.exe", "Oscuro", "activo")
+    with pytest.raises(ErrorPerfil, match="no está"):
+        est.modificar_programa("nada.exe", "x.exe", "Oscuro", "activo")
+    with pytest.raises(PerfilNoEncontrado):
+        est.modificar_programa("b.exe", "b.exe", "Nada", "activo")
+    with pytest.raises(ErrorPerfil):
+        est.modificar_programa("b.exe", "malo.bat", "Oscuro", "activo")
+    assert est.exes_con_ventana() == {"b.exe"}
