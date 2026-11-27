@@ -91,6 +91,7 @@ class Entorno:
         self.ventana = ventana
         self.apps: list[App] = []
         self.arranque = ArranqueFalso()
+        self.procesos: frozenset[str] = frozenset()
 
     def crear_sesion(self, ms):
         s = SesionFalsa(ms)
@@ -109,7 +110,7 @@ class Entorno:
             raiz=ventana or self.ventana, ruta_config=self.ruta_config, ruta_peticion_=self.ruta_peticion,
             listar=lambda: list(self.ms), leer=self.leer, crear_sesion=self.crear_sesion,
             prefijo_sistema=self.prefijo, con_bandeja=False, intervalo_vigilancia=0.05,
-            oculto=oculto, arranque=self.arranque,
+            oculto=oculto, arranque=self.arranque, leer_procesos=lambda: self.procesos, intervalo_procesos=0.05,
         )
         self.apps.append(a)
         return a
@@ -523,3 +524,137 @@ def test_al_arrancar_se_refleja_el_estado_y_se_avisa_si_el_acceso_esta_roto(ento
     a = entorno.nueva()
     a.iniciar()
     assert a._info.arranque is True and "ya no existe" in a.panel.lbl_aviso.cget("text")
+
+
+# --- Perfil automático por programa ----------------------------------------------------------------------------------------
+RAMPA_CODIGO = color.construir_rampa_segura(Ajuste.uniforme(-20.0, 0.0, 1.0, 6000.0))
+
+
+def con_juego(a):
+    a.estado.asociar_programa("Juego.exe", "Código")
+    a.persistir()  # actualiza los programas vigilados y guarda
+
+
+def test_al_abrirse_el_programa_asociado_se_activa_su_perfil_y_al_cerrarse_vuelve_el_de_antes(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    con_juego(a)
+    a._procesos_cambiaron(frozenset({"juego.exe"}))
+    assert a.estado.activo == "Código" and a._exe_auto == "juego.exe"
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_CODIGO)
+    assert "activado por juego.exe" in a.panel.lbl_aviso.cget("text") and a.panel.var_activo.get() == "Código"
+    a._procesos_cambiaron(frozenset())
+    assert a.estado.activo == "Oscuro" and a._exe_auto is None
+    assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
+    assert "vuelve el perfil «Oscuro»" in a.panel.lbl_aviso.cget("text")
+
+
+def test_el_hilo_detecta_el_programa_solo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    con_juego(a)
+    entorno.procesos = frozenset({"juego.exe", "chrome.exe"})  # chrome no está asociado: se ignora
+    assert procesar(a, lambda: a.estado.activo == "Código")
+    entorno.procesos = frozenset({"chrome.exe"})
+    assert procesar(a, lambda: a.estado.activo == "Oscuro")
+
+
+def test_un_programa_que_ya_estaba_abierto_al_arrancar_se_detecta(ventana, tmp_path):
+    conf = configuracion()
+    conf.asociar("juego.exe", "Código")
+    e = Entorno(ventana, tmp_path, conf=conf)
+    e.procesos = frozenset({"juego.exe"})
+    try:
+        a = e.nueva()
+        a.iniciar()
+        assert procesar(a, lambda: a.estado.activo == "Código")
+        assert esperar(lambda: e.sesion.pantalla[1] == RAMPA_CODIGO)
+    finally:
+        e.cerrar()
+
+
+def test_el_perfil_automatico_no_se_guarda_como_el_activo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    con_juego(a)
+    a._procesos_cambiaron(frozenset({"juego.exe"}))
+    a.persistir()
+    c, _ = perfiles.cargar(entorno.ruta_config)
+    assert c.perfil_activo == "Oscuro" and [(x.exe, x.perfil) for x in c.programas] == [("juego.exe", "Código")]
+
+
+def test_si_el_usuario_cambia_de_perfil_durante_el_juego_se_respeta_al_cerrarlo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    con_juego(a)
+    a._procesos_cambiaron(frozenset({"juego.exe"}))
+    a._atender_bandeja(tray.PERFIL, "Normal")  # a mano
+    a._procesos_cambiaron(frozenset())
+    assert a.estado.activo == "Normal"
+
+
+def test_con_activo_apagado_cambia_el_perfil_pero_la_pantalla_sigue_original(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    con_juego(a)
+    a._atender_bandeja(tray.ALTERNAR_ACTIVO, None)
+    assert esperar(lambda: entorno.sesion.pantalla[1] == IDENTIDAD)
+    a._procesos_cambiaron(frozenset({"juego.exe"}))
+    assert a.estado.activo == "Código"
+    time.sleep(0.3)
+    assert entorno.sesion.pantalla[1] == IDENTIDAD and not a.estado.activo_on
+
+
+def test_un_programa_sin_asociar_o_con_perfil_borrado_no_cambia_nada(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a._procesos_cambiaron(frozenset({"juego.exe"}))  # no hay asociación
+    assert a.estado.activo == "Oscuro" and a._exe_auto is None
+    con_juego(a)
+    a.estado._sustituir_referencias("Código", None)  # el perfil se borra: la asociación desaparece
+    a._procesos_cambiaron(frozenset({"juego.exe"}))
+    assert a.estado.activo == "Oscuro"
+
+
+def test_dos_programas_abiertos_mandan_el_ultimo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    a.estado.asociar_programa("a.exe", "Código")
+    a.estado.asociar_programa("b.exe", "Normal")
+    a.persistir()
+    a._procesos_cambiaron(frozenset({"a.exe"}))
+    assert a.estado.activo == "Código"
+    a._procesos_cambiaron(frozenset({"a.exe", "b.exe"}))
+    assert a.estado.activo == "Normal"
+    a._procesos_cambiaron(frozenset({"a.exe"}))
+    assert a.estado.activo == "Código"
+    a._procesos_cambiaron(frozenset())
+    assert a.estado.activo == "Oscuro"
+
+
+def test_la_bandeja_abre_el_dialogo_de_programas(entorno):
+    a = entorno.nueva(oculto=True)
+    a.iniciar()
+    llamadas = []
+    a.panel.abrir_dialogo_programas = lambda *args: llamadas.append(args)
+    a._atender_bandeja(tray.PROGRAMAS, None)
+    assert a.panel.visible and len(llamadas) == 1 and llamadas[0][1] is a.estado
+
+
+def test_cambiar_los_programas_desde_el_dialogo_actualiza_lo_vigilado_y_se_guarda(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    assert a._vigilados == frozenset()
+    a.estado.asociar_programa("juego.exe", "Código")
+    a.panel.ctl.persistir()  # lo que llama el diálogo al añadir
+    assert a._vigilados == {"juego.exe"}
+    assert perfiles.cargar(entorno.ruta_config)[0].programas[0].exe == "juego.exe"
+
+
+def test_al_cerrar_para_el_hilo_de_procesos(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    hilo = a._hilo_procesos
+    assert hilo.is_alive()
+    a._parar_todo()
+    assert not hilo.is_alive()

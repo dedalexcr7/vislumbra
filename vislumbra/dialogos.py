@@ -8,8 +8,12 @@ muestra y espera el resultado; las pruebas usan ``Dialogo`` directamente.
 from __future__ import annotations
 
 import tkinter as tk
+from collections.abc import Callable
+from tkinter import ttk
 
 from . import sistema
+from .estado import Estado
+from .perfiles import ErrorPerfil
 from .widgets import (
     ACENTO, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, TEXTO, Boton, fuente, nueva_posicion, px,
     rect_redondeado,
@@ -54,6 +58,7 @@ class Dialogo(tk.Toplevel):
         tk.Frame(marco, bg=LINEA, height=1).pack(fill="x")
         cuerpo = tk.Frame(marco, bg=FONDO_VENTANA, padx=px(16), pady=px(16))
         cuerpo.pack(fill="both", expand=True)
+        self._cuerpo = cuerpo
         tk.Label(
             cuerpo, text=mensaje, bg=FONDO_VENTANA, fg=TEXTO, font=fuente(13), anchor="w", justify="left", wraplength=px(self.ANCHO_TEXTO),
         ).pack(fill="x")
@@ -61,6 +66,7 @@ class Dialogo(tk.Toplevel):
             self._crear_campo(cuerpo, campo)
         fila = tk.Frame(cuerpo, bg=FONDO_VENTANA)
         fila.pack(fill="x", pady=(px(16), 0))
+        self._fila = fila
         self.botones: list[Boton] = []
         for texto, valor, estilo in reversed(botones):
             b = Boton(fila, texto, lambda v=valor: self._cerrar(v), estilo=estilo, minimo=76)
@@ -154,3 +160,89 @@ def preguntar_guardar(raiz: tk.Misc) -> bool | None:
         [("Guardar", True, "activo"), ("Descartar", False, "normal"), ("Cancelar", None, "normal")], cancelar=None,
     )
     return ejecutar(raiz, d)  # type: ignore[return-value]
+
+
+# --- Programas asociados a perfiles ----------------------------------------------------------------------------
+class DialogoProgramas(Dialogo):
+    """Lista de programas (.exe) y el perfil que se activa solo cuando están abiertos."""
+
+    _COLOR_ERROR = "#e06a5a"
+
+    def __init__(self, raiz: tk.Misc, estado: Estado, procesos_abiertos: Callable[[], list[str]], al_cambiar: Callable[[], None]):
+        super().__init__(
+            raiz, "Programas y perfiles",
+            "Cuando uno de estos programas esté abierto se activa su perfil; al cerrarlo vuelve el que tenías.",
+            [("Cerrar", None, "activo")],
+        )
+        self.estado, self._procesos, self._al_cambiar = estado, procesos_abiertos, al_cambiar
+        marco = tk.Frame(self._cuerpo, bg=FONDO_VENTANA)
+        marco.pack(before=self._fila, fill="x", pady=(px(12), 0))
+        self.lista = tk.Listbox(
+            marco, height=6, width=44, bg=CAMPO, fg=TEXTO, selectbackground=BORDE_BOTON, selectforeground=TEXTO, relief="flat",
+            highlightthickness=1, highlightbackground=BORDE_BOTON, activestyle="none", exportselection=False, font=fuente(12),
+        )
+        self.lista.pack(fill="x")
+        Boton(marco, "Quitar el seleccionado", self._quitar, minimo=76).pack(anchor="e", pady=(px(6), 0))
+        tk.Label(marco, text="Añadir un programa", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12, True), anchor="w").pack(fill="x", pady=(px(10), 0))
+        self.var_exe = tk.StringVar(master=self)
+        self.entrada = tk.Entry(
+            marco, textvariable=self.var_exe, bg=CAMPO, fg=TEXTO, insertbackground=TEXTO, relief="flat", highlightthickness=1,
+            highlightbackground=BORDE_BOTON, highlightcolor=ACENTO, font=fuente(12),
+        )
+        self.entrada.pack(fill="x", pady=(px(4), 0), ipady=px(3))
+        self.entrada.bind("<Button-1>", lambda e: self.entrada.focus_force(), add="+")
+        tk.Label(marco, text="Escribe su nombre (juego.exe) o elígelo entre los abiertos:", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(11), anchor="w").pack(fill="x", pady=(px(4), 0))
+        self.var_abiertos = tk.StringVar(master=self)
+        self.combo_abiertos = ttk.Combobox(marco, textvariable=self.var_abiertos, state="readonly", values=self._abiertos(), font=fuente(12))
+        self.combo_abiertos.pack(fill="x", pady=(px(2), 0))
+        self.combo_abiertos.bind("<<ComboboxSelected>>", lambda e: self.var_exe.set(self.var_abiertos.get()))
+        fila = tk.Frame(marco, bg=FONDO_VENTANA)
+        fila.pack(fill="x", pady=(px(8), 0))
+        tk.Label(fila, text="Perfil", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12)).pack(side="left")
+        self.var_perfil = tk.StringVar(master=self, value=estado.activo)
+        self.combo_perfil = ttk.Combobox(fila, textvariable=self.var_perfil, state="readonly", values=estado.nombres(), width=18, font=fuente(12))
+        self.combo_perfil.pack(side="left", padx=(px(8), 0))
+        Boton(fila, "Añadir", self._anadir, estilo="activo", minimo=76).pack(side="right")
+        self.lbl_error = tk.Label(marco, text="", bg=FONDO_VENTANA, fg=self._COLOR_ERROR, font=fuente(11), anchor="w", justify="left", wraplength=px(self.ANCHO_TEXTO))
+        self.lbl_error.pack(fill="x", pady=(px(6), 0))
+        self._refrescar_lista()
+
+    def _abiertos(self) -> list[str]:
+        try:
+            return list(self._procesos())
+        except OSError:
+            return []
+
+    def filas(self) -> list[str]:
+        return [f"{a.exe}  →  {a.perfil}" for a in self.estado.programas]
+
+    def _refrescar_lista(self) -> None:
+        self.lista.delete(0, "end")
+        for texto in self.filas():
+            self.lista.insert("end", texto)
+
+    def _anadir(self) -> None:
+        try:
+            normal = self.estado.asociar_programa(self.var_exe.get(), self.var_perfil.get())
+        except ErrorPerfil as e:
+            self.lbl_error.configure(text=str(e)[:1].upper() + str(e)[1:])
+            return
+        self.lbl_error.configure(text="")
+        self.var_exe.set("")
+        self._refrescar_lista()
+        self._al_cambiar()
+        return normal
+
+    def _quitar(self) -> None:
+        seleccion = self.lista.curselection()
+        if not seleccion:
+            self.lbl_error.configure(text="Elige primero un programa de la lista.")
+            return
+        self.estado.quitar_programa(self.estado.programas[seleccion[0]].exe)
+        self.lbl_error.configure(text="")
+        self._refrescar_lista()
+        self._al_cambiar()
+
+
+def programas(raiz: tk.Misc, estado: Estado, procesos_abiertos: Callable[[], list[str]], al_cambiar: Callable[[], None]) -> None:
+    ejecutar(raiz, DialogoProgramas(raiz, estado, procesos_abiertos, al_cambiar))

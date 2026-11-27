@@ -22,7 +22,7 @@ import traceback
 from collections.abc import Callable
 from pathlib import Path
 
-from . import arranque, display, perfiles, sistema, tray
+from . import arranque, display, perfiles, procesos, programas, sistema, tray
 from .aplicador import Aplicador, Aviso
 from .estado import Estado
 from .panel import AVISO, PELIGRO, TEXTO_SUAVE, Panel
@@ -54,6 +54,8 @@ class App:
         intervalo_vigilancia: float | None = None,
         oculto: bool = False,
         arranque=arranque,
+        leer_procesos: Callable[[], frozenset[str]] = procesos.nombres_en_ejecucion,
+        intervalo_procesos: float = 1.0,
     ):
         self._raiz_dada = raiz
         self.ruta_config = ruta_config
@@ -66,6 +68,12 @@ class App:
         self._oculto = oculto  # al iniciar sesión: solo el icono, sin abrir el panel
         self._arranque = arranque
         self._arranque_activo = False
+        self._leer_procesos, self._intervalo_procesos = leer_procesos, intervalo_procesos
+        self._seguimiento = programas.SeguimientoProgramas()
+        self._vigilados: frozenset[str] = frozenset()
+        self._exe_auto: str | None = None
+        self._hilo_procesos: threading.Thread | None = None
+        self._parar_procesos = threading.Event()
         self.cola: queue.Queue = queue.Queue()
         self.raiz = self.estado = self.panel = self.sesion = self.aplicador = self.bandeja = None
         self._mutex = None
@@ -119,6 +127,9 @@ class App:
         self._corriendo = True
         self._hilo_eventos = threading.Thread(target=self._bucle_eventos, name="vislumbra-eventos", daemon=True)
         self._hilo_eventos.start()
+        self._vigilados = self.estado.exes_vigilados()
+        self._hilo_procesos = threading.Thread(target=self._bucle_procesos, name="vislumbra-procesos", daemon=True)
+        self._hilo_procesos.start()
         self._actualizar_info()
         if self._con_bandeja:
             self.bandeja = tray.Bandeja(self._accion_de_bandeja, lambda: self._info)
@@ -169,6 +180,7 @@ class App:
         self._actualizar_info()
 
     def persistir(self) -> None:
+        self._vigilados = self.estado.exes_vigilados()  # por si cambiaron los programas asociados
         try:
             perfiles.guardar_en(self.estado.conf_persistible(), self.ruta_config)
         except OSError as e:
@@ -243,6 +255,8 @@ class App:
             self._atender_aviso(tarea[1])
         elif tipo == "bandeja":
             self._atender_bandeja(tarea[1], tarea[2])
+        elif tipo == "procesos":
+            self._procesos_cambiaron(tarea[1])
 
     # -- acciones --------------------------------------------------------------------------------------------------------------------------
     def _refrescar_todo(self, persistir: bool = False) -> None:
@@ -269,6 +283,9 @@ class App:
                 if e.activo_on:
                     e.alternar_ab()
                     self._refrescar_todo()
+            elif accion == tray.PROGRAMAS:
+                self.panel.mostrar()
+                self.panel.abrir_programas()
             elif accion == tray.ARRANQUE:
                 self._alternar_arranque()
             elif accion == tray.SALIR:
@@ -358,6 +375,39 @@ class App:
             self.bandeja.avisar("Cambió la lista de monitores", "Vislumbra ha vuelto a aplicar los perfiles guardados.")
 
     # -- cierre -------------------------------------------------------------------------------------------------------------------------------
+    # -- perfil automático por programa -----------------------------------------------------------------------------------------
+    def _bucle_procesos(self) -> None:
+        """Cada segundo mira qué programas asociados están abiertos y avisa solo cuando cambia (hilo aparte)."""
+        ultimo: frozenset[str] | None = None
+        while True:
+            try:
+                abiertos = frozenset(self._leer_procesos()) & self._vigilados
+            except OSError:
+                abiertos = ultimo
+            if abiertos is not None and abiertos != ultimo:
+                ultimo = abiertos
+                self.cola.put(("procesos", abiertos))
+            if self._parar_procesos.wait(self._intervalo_procesos):
+                return
+
+    def _procesos_cambiaron(self, abiertos: frozenset[str]) -> None:
+        """Hilo principal: un programa asociado se abrió o se cerró; cambia el perfil activo si hace falta."""
+        e = self.estado
+        exe = self._seguimiento.actualizar(abiertos & e.exes_vigilados())
+        nombre = e.perfil_de_programa(exe) if exe else None
+        cambio = e.set_automatico(nombre)
+        self._exe_auto = exe if nombre else None
+        if not cambio:
+            return
+        self._refrescar_todo()  # sin persistir: el perfil automático no es el del usuario
+        if nombre:
+            texto = f"Perfil «{e.activo}» activado por {exe}."
+        else:
+            texto = f"Se cerró el programa: vuelve el perfil «{e.activo}»."
+        self.panel.mensaje(texto, TEXTO_SUAVE, 10)
+        if self.bandeja is not None:
+            self.bandeja.avisar("Perfil cambiado", texto)
+
     def _excepcion_tk(self, tipo, valor, traza) -> None:
         if issubclass(tipo, (KeyboardInterrupt, SystemExit)):  # Ctrl+C o cierre de la consola: la sesión ya restauró
             self._cerrando = True
@@ -385,6 +435,10 @@ class App:
             except Exception as e:  # noqa: BLE001 - al cerrar no debe quedar nada a medias
                 print(f"Aviso: no se pudo {que}: {e}", file=sys.stderr)
 
+        self._parar_procesos.set()
+        if self._hilo_procesos is not None:
+            paso("esperar al hilo de procesos", lambda: self._hilo_procesos.join(2.0))
+            self._hilo_procesos = None
         if self.aplicador is not None:
             paso("parar el aplicador", self.aplicador.parar)
         if self.sesion is not None:

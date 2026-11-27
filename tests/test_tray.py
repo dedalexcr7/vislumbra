@@ -19,7 +19,7 @@ def textos(menu):
 def test_el_menu_tiene_las_entradas_del_plan():
     menu = tray.construir_menu(INFO)
     assert textos(menu) == [
-        "Mostrar panel", "Activo", "Perfil activo", "Normal", "Oscuro", "Código", "Siguiente perfil", "Comparar (A/B)", "Iniciar con Windows",
+        "Mostrar panel", "Activo", "Perfil activo", "Normal", "Oscuro", "Código", "Siguiente perfil", "Comparar (A/B)", "Programas…", "Iniciar con Windows",
         "Salir (restaura la pantalla)",
     ]
     assert sum(i.separador for i in menu) == 2
@@ -82,7 +82,7 @@ def test_la_bandeja_traduce_el_menu_y_envia_las_acciones():
     recibidas = []
     b = Bandeja(lambda accion, arg: recibidas.append((accion, arg)), lambda: INFO)
     items = [b._convertir(i) for i in tray.construir_menu(INFO)]
-    assert len(items) == 12
+    assert len(items) == 13
     por_texto = {getattr(i, "text", None): i for i in items}
     por_texto["Siguiente perfil"](b.icono)  # un MenuItem se invoca con el icono
     por_texto["Activo"](b.icono)

@@ -14,7 +14,7 @@ import tkinter as tk
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
-from . import color, dialogos, escala, sistema
+from . import color, dialogos, escala, procesos, sistema
 from .estado import Estado
 from .perfiles import ErrorPerfil
 from .widgets import (  # noqa: F401  (AVISO, PELIGRO y TEXTO_SUAVE los importa app.py)
@@ -350,6 +350,8 @@ class Panel:
         self.preguntar_texto: Callable[[str, str, str], str | None] = self._preguntar_texto
         self.confirmar: Callable[[str, str], bool] = lambda t, m: dialogos.confirmar(self.raiz, t, m)
         self.preguntar_guardar: Callable[[], bool | None] = self._preguntar_guardar
+        self.procesos_abiertos: Callable[[], list[str]] = procesos.nombres_ordenados
+        self.abrir_dialogo_programas = dialogos.programas  # las pruebas lo sustituyen
         self._mensaje: tuple[str, str, float] | None = None  # (texto, color, hasta)
         self._colocada = False
         self._arrastre_ini: tuple[int, int, int, int] | None = None
@@ -443,6 +445,8 @@ class Panel:
             self.btns[clave].pack(side="right", padx=(px(8), 0))
         self.btns["borrar"].pack(side="left")
         self.btns["descartar"].pack(side="left", padx=(px(8), 0))
+        self.btn_programas = Boton(linea2, "Programas…", self.abrir_programas, relleno=10)
+        self.btn_programas.pack(side="right")
 
         canales = tk.Frame(ed, bg=fondo)
         canales.pack(fill="x", pady=(px(12), 0))
@@ -539,6 +543,11 @@ class Panel:
         x, y = sistema.limitar_al_area(r.winfo_x(), r.winfo_y(), r.winfo_width(), r.winfo_height(), sistema.area_de_trabajo())
         if (x, y) != (r.winfo_x(), r.winfo_y()):
             r.geometry(f"+{x}+{y}")
+
+    def abrir_programas(self) -> None:
+        """Diálogo de programas asociados a perfiles (también desde el menú de la bandeja)."""
+        self.abrir_dialogo_programas(self.raiz, self.estado, self.procesos_abiertos, self.ctl.persistir)
+        self.refrescar()
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------
     def _preguntar_texto(self, titulo: str, mensaje: str, inicial: str) -> str | None:

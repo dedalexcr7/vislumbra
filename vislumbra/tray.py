@@ -29,6 +29,7 @@ PERFIL = "perfil"  # con el nombre como argumento
 SIGUIENTE = "siguiente"
 COMPARAR = "comparar"
 ARRANQUE = "arranque"
+PROGRAMAS = "programas"
 SALIR = "salir"
 
 
@@ -70,6 +71,7 @@ def construir_menu(info: InfoBandeja) -> list[ItemMenu]:
         ItemMenu("Siguiente perfil", SIGUIENTE),
         SEPARADOR,
         ItemMenu("Comparar (A/B)", COMPARAR, marcado=info.ab),
+        ItemMenu("Programas…", PROGRAMAS),
         ItemMenu("Iniciar con Windows", ARRANQUE, marcado=info.arranque),
         ItemMenu("Salir (restaura la pantalla)", SALIR),
     ]

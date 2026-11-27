@@ -35,8 +35,8 @@ def test_normalizar_exe_deja_solo_el_nombre_en_minusculas(texto, esperado):
 
 def test_normalizar_exe_no_deja_pasar_la_carpeta():
     """Privacidad: aunque se pegue una ruta con el usuario, solo se guarda el nombre del programa."""
-    assert "\\" not in normalizar_exe(r"C:\Users\alguien\Juegos\juego.exe")
-    assert "alguien" not in normalizar_exe(r"C:\Users\alguien\Juegos\juego.exe")
+    assert "\\" not in normalizar_exe(r"C:\Users\dev\Juegos\juego.exe")
+    assert "dev" not in normalizar_exe(r"C:\Users\dev\Juegos\juego.exe")
 
 
 @pytest.mark.parametrize("texto", ["", "   ", ".exe", "juego.bat", "juego.txt", 'a"b.exe', "a|b.exe", "x" * 70 + ".exe", "con\nsalto.exe", "C:\\carpeta\\"])

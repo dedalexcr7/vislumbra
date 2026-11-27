@@ -550,3 +550,15 @@ def test_el_color_del_margen_avisa_cerca_del_limite():
     assert panel.color_margen(0.3) == widgets.ACENTO
     assert panel.color_margen(0.85) == widgets.AVISO_MARGEN
     assert panel.color_margen(0.97) == widgets.PELIGRO
+
+
+def test_el_boton_programas_abre_el_dialogo_con_los_procesos_abiertos(montaje):
+    p, estado, ctl, _ = montaje
+    llamadas = []
+    p.abrir_dialogo_programas = lambda *args: llamadas.append(args)
+    p.procesos_abiertos = lambda: ["juego.exe"]
+    assert visible(p.btn_programas) and str(p.btn_programas.winfo_class()) == "Canvas"
+    p.abrir_programas()
+    raiz, est, abiertos, al_cambiar = llamadas[0]
+    assert est is estado and abiertos() == ["juego.exe"] and al_cambiar == ctl.persistir
+
