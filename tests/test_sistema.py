@@ -104,3 +104,11 @@ def test_colocar_abajo_a_la_derecha():
     # Si la ventana no cabe, se pega a la esquina superior izquierda del área.
     assert sistema.colocar_abajo_derecha((0, 0, 300, 300), 400, 600) == (0, 0)
     assert sistema.colocar_abajo_derecha((100, 50, 500, 450), 100, 100, margen=0) == (400, 350)
+
+
+def test_redondear_ventana_no_falla_con_una_ventana_invalida():
+    class Falsa:
+        def wm_frame(self):
+            raise RuntimeError("sin ventana")
+
+    assert sistema.redondear_ventana(Falsa(), "#34332d") is False

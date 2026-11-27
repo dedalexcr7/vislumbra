@@ -138,3 +138,25 @@ def colocar_abajo_derecha(area: tuple[int, int, int, int], ancho: int, alto: int
     x = max(izq, der - ancho - margen)
     y = max(arriba, abajo - alto - margen)
     return x, y
+
+
+def redondear_ventana(ventana, borde: str | None = None) -> bool:
+    """Pide a Windows 11 esquinas redondeadas (y el color del borde ``#rrggbb``) para una ventana de Tk sin barra.
+
+    Es solo cosmético (``DwmSetWindowAttribute``): no toca el registro ni los controladores. Devuelve
+    ``False`` si el sistema no lo admite (Windows 10) o algo falla; entonces la ventana queda cuadrada.
+    """
+    try:
+        hwnd = int(ventana.wm_frame(), 16)
+        dwm = ctypes.WinDLL("dwmapi")
+        dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
+        dwm.DwmSetWindowAttribute.restype = ctypes.c_long
+        redondeo = ctypes.c_int(2)  # DWMWCP_ROUND
+        ok = dwm.DwmSetWindowAttribute(hwnd, 33, ctypes.byref(redondeo), ctypes.sizeof(redondeo)) == 0  # DWMWA_WINDOW_CORNER_PREFERENCE
+        if borde and ok:
+            r, g, b = (int(borde[i:i + 2], 16) for i in (1, 3, 5))
+            colorref = ctypes.c_uint(r | (g << 8) | (b << 16))
+            dwm.DwmSetWindowAttribute(hwnd, 34, ctypes.byref(colorref), ctypes.sizeof(colorref))  # DWMWA_BORDER_COLOR
+        return ok
+    except Exception:  # cosmético: nunca debe impedir mostrar el panel
+        return False
