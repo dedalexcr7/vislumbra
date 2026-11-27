@@ -92,6 +92,7 @@ class Entorno:
         self.apps: list[App] = []
         self.arranque = ArranqueFalso()
         self.procesos: frozenset[str] = frozenset()
+        self.ventanas: dict[str, str] = {}
 
     def crear_sesion(self, ms):
         s = SesionFalsa(ms)
@@ -110,7 +111,8 @@ class Entorno:
             raiz=ventana or self.ventana, ruta_config=self.ruta_config, ruta_peticion_=self.ruta_peticion,
             listar=lambda: list(self.ms), leer=self.leer, crear_sesion=self.crear_sesion,
             prefijo_sistema=self.prefijo, con_bandeja=False, intervalo_vigilancia=0.05,
-            oculto=oculto, arranque=self.arranque, leer_procesos=lambda: self.procesos, intervalo_procesos=0.05,
+            oculto=oculto, arranque=self.arranque, leer_procesos=lambda: self.procesos, leer_ventanas=lambda exes: {k: v for k, v in self.ventanas.items() if k in exes},
+            intervalo_procesos=0.05,
         )
         self.apps.append(a)
         return a
@@ -542,7 +544,7 @@ def test_al_abrirse_el_programa_asociado_se_activa_su_perfil_y_al_cerrarse_vuelv
     a._procesos_cambiaron(frozenset({"juego.exe"}))
     assert a.estado.activo == "Código" and a._exe_auto == "juego.exe"
     assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_CODIGO)
-    assert "activado por juego.exe" in a.panel.lbl_aviso.cget("text") and a.panel.var_activo.get() == "Código"
+    assert "Perfil automático: juego.exe → «Código»" in a.panel.lbl_aviso.cget("text") and a.panel.var_activo.get() == "Código"
     a._procesos_cambiaron(frozenset())
     assert a.estado.activo == "Oscuro" and a._exe_auto is None
     assert esperar(lambda: entorno.sesion.pantalla[1] == RAMPA_OSCURO)
@@ -658,3 +660,99 @@ def test_al_cerrar_para_el_hilo_de_procesos(entorno):
     assert hilo.is_alive()
     a._parar_todo()
     assert not hilo.is_alive()
+
+
+# --- Programas por monitor (alcance «ventana» y «monitor concreto») -----------------------------------------------------------
+def monitores_fijos(a):
+    """El caso del autor: todos los monitores con perfil fijo."""
+    a.estado.fijar_monitor(1, "Código")
+    a.estado.fijar_monitor(2, "Oscuro")
+    a.estado.fijar_monitor(3, "Normal")
+    a.rampas_cambiaron()
+    assert esperar(lambda: entorno_pantalla(a)[1] == RAMPA_CODIGO)
+
+
+def entorno_pantalla(a):
+    return a.sesion.pantalla
+
+
+def test_un_programa_con_alcance_ventana_solo_cambia_el_monitor_donde_esta(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    a.estado.asociar_programa("juego.exe", "Oscuro", "ventana")
+    a.persistir()
+    entorno.ventanas = {"juego.exe": r"\\.\PRUEBA3"}
+    entorno.procesos = frozenset({"juego.exe"})
+    assert procesar(a, lambda: a.estado.perfil_de_monitor(3).nombre == "Oscuro")
+    assert esperar(lambda: entorno.sesion.pantalla[3] == RAMPA_OSCURO)
+    assert entorno.sesion.pantalla[1] == RAMPA_CODIGO and a.estado.activo == "Oscuro" and not a.estado.automatico
+    assert "Perfil automático: juego.exe → «Oscuro» en el monitor 3" in a.panel.lbl_aviso.cget("text")
+    entorno.procesos = frozenset()
+    assert procesar(a, lambda: a.estado.perfil_de_monitor(3).es_normal)
+    assert esperar(lambda: entorno.sesion.pantalla[3] == IDENTIDAD)
+    assert "vuelven los perfiles de antes" in a.panel.lbl_aviso.cget("text")
+
+
+def test_minimizar_no_quita_el_perfil_y_arrastrar_la_ventana_lo_mueve(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    a.estado.asociar_programa("juego.exe", "Oscuro", "ventana")
+    a.persistir()
+    a._procesos_cambiaron(frozenset({"juego.exe"}), {"juego.exe": r"\\.\PRUEBA3"})
+    assert a.estado.perfil_de_monitor(3).nombre == "Oscuro"
+    a._procesos_cambiaron(frozenset({"juego.exe"}), {})  # minimizado o alt-tab: sin ventana visible
+    assert a.estado.perfil_de_monitor(3).nombre == "Oscuro"
+    a._procesos_cambiaron(frozenset({"juego.exe"}), {"juego.exe": r"\\.\PRUEBA1"})  # lo arrastraron al monitor 1
+    assert a.estado.perfil_de_monitor(1).nombre == "Oscuro" and a.estado.perfil_de_monitor(3).es_normal
+
+
+def test_un_monitor_concreto_se_aplica_aunque_la_ventana_este_en_otro(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    clave3 = a.estado.monitores[2].clave
+    a.estado.asociar_programa("juego.exe", "Oscuro", "monitor:" + clave3)
+    a.persistir()
+    a._procesos_cambiaron(frozenset({"juego.exe"}), {"juego.exe": r"\\.\PRUEBA1"})
+    assert a.estado.perfil_de_monitor(3).nombre == "Oscuro" and a.estado.perfil_de_monitor(1).nombre == "Código"
+
+
+def test_lo_que_ponen_los_programas_por_monitor_no_se_guarda(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    a.estado.asociar_programa("juego.exe", "Oscuro", "ventana")
+    a.persistir()
+    a._procesos_cambiaron(frozenset({"juego.exe"}), {"juego.exe": r"\\.\PRUEBA3"})
+    a.persistir()
+    c, _ = perfiles.cargar(entorno.ruta_config)
+    assert c.monitores[a.estado.monitores[2].clave] == "Normal"  # el fijo del monitor 3, no el del programa
+    assert [(x.exe, x.alcance) for x in c.programas] == [("juego.exe", "ventana")]
+
+
+def test_el_hilo_lee_las_ventanas_solo_de_los_programas_con_alcance_ventana(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    a.estado.asociar_programa("juego.exe", "Oscuro", "ventana")
+    a.estado.asociar_programa("global.exe", "Código", "activo")
+    a.persistir()
+    assert a._vigilados_ventana == {"juego.exe"} and a._vigilados == {"juego.exe", "global.exe"}
+    entorno.ventanas = {"juego.exe": r"\\.\PRUEBA2"}
+    entorno.procesos = frozenset({"juego.exe"})
+    assert procesar(a, lambda: a.estado.perfil_de_monitor(2).nombre == "Oscuro" and "juego.exe" in a.panel.lbl_aviso.cget("text"))
+
+
+def test_un_programa_que_cambia_de_monitor_se_detecta_por_el_hilo(entorno):
+    a = entorno.nueva()
+    a.iniciar()
+    monitores_fijos(a)
+    a.estado.asociar_programa("juego.exe", "Oscuro", "ventana")
+    a.persistir()
+    entorno.procesos = frozenset({"juego.exe"})
+    entorno.ventanas = {"juego.exe": r"\\.\PRUEBA3"}
+    assert procesar(a, lambda: a.estado.perfil_de_monitor(3).nombre == "Oscuro")
+    entorno.ventanas = {"juego.exe": r"\\.\PRUEBA1"}
+    assert procesar(a, lambda: a.estado.perfil_de_monitor(1).nombre == "Oscuro")
