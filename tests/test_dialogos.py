@@ -93,7 +93,7 @@ def test_anadir_un_programa_escribiendo_su_nombre_o_una_ruta(dialogo_programas):
     d.var_exe.set(r"C:\Juegos\Mi Juego\Juego.EXE")
     d.var_perfil.set("Código")
     d._anadir()
-    assert d.filas() == ["juego.exe  →  Código"] and d.lista.get(0) == "juego.exe  →  Código"
+    assert d.filas() == ["juego.exe  →  Código  ·  monitor donde esté"] and d.lista.get(0) == d.filas()[0]
     assert [(a.exe, a.perfil) for a in estado.programas] == [("juego.exe", "Código")]
     assert d.var_exe.get() == "" and d.lbl_error.cget("text") == "" and cambios == [1]
 
@@ -134,3 +134,83 @@ def test_si_no_se_pueden_listar_los_procesos_el_dialogo_sigue_funcionando(ventan
         assert list(d.combo_abiertos.cget("values")) == []
     finally:
         d.destroy()
+
+
+# --- Alcance y edición en su sitio ------------------------------------------------------------------------------------------------
+def test_el_alcance_por_defecto_es_el_monitor_donde_este_el_programa_y_se_guarda_asi(dialogo_programas):
+    d, estado, _ = dialogo_programas
+    assert d.var_alcance.get() == dialogos.ETIQUETA_VENTANA and str(d.combo_monitor.cget("state")) == "disabled"
+    d.var_exe.set("juego.exe")
+    d.var_perfil.set("Oscuro")
+    d._anadir()
+    assert [(a.exe, a.alcance) for a in estado.programas] == [("juego.exe", "ventana")]
+
+
+def test_elegir_un_monitor_concreto_activa_su_selector_y_guarda_su_clave(dialogo_programas):
+    d, estado, _ = dialogo_programas
+    assert list(d.combo_monitor.cget("values")) == ["Monitor 1 · principal", "Monitor 2"]
+    d.var_alcance.set(dialogos.ETIQUETA_MONITOR)
+    d._alcance_cambiado()
+    assert str(d.combo_monitor.cget("state")) == "readonly"
+    d.var_monitor.set("Monitor 2")
+    d.var_exe.set("juego.exe")
+    d.var_perfil.set("Código")
+    d._anadir()
+    assert estado.programas[0].alcance == "monitor:m-2"
+    assert d.filas() == ["juego.exe  →  Código  ·  Monitor 2"]
+
+
+def test_el_alcance_perfil_activo(dialogo_programas):
+    d, estado, _ = dialogo_programas
+    d.var_alcance.set(dialogos.ETIQUETA_ACTIVO)
+    d.var_exe.set("juego.exe")
+    d._anadir()
+    assert estado.programas[0].alcance == "activo" and d.filas()[0].endswith("perfil activo")
+
+
+def test_elegir_una_fila_carga_el_formulario_y_guardar_cambios_la_modifica_sin_borrarla(dialogo_programas):
+    d, estado, cambios = dialogo_programas
+    estado.asociar_programa("a.exe", "Oscuro", "ventana")
+    estado.asociar_programa("b.exe", "Código", "monitor:m-2")
+    d._refrescar_lista()
+    assert str(d.btn_guardar.cget("state")) == "disabled"  # nada elegido todavía
+    d.lista.selection_set(1)
+    d._cargar_seleccion()
+    assert d.var_exe.get() == "b.exe" and d.var_perfil.get() == "Código"
+    assert d.var_alcance.get() == dialogos.ETIQUETA_MONITOR and d.var_monitor.get() == "Monitor 2"
+    assert "Cambiar" in d.lbl_forma.cget("text")
+    d.var_perfil.set("Oscuro")
+    d.var_alcance.set(dialogos.ETIQUETA_ACTIVO)
+    d.var_exe.set("B2.exe")  # también se puede cambiar el nombre
+    d._guardar_cambios()
+    assert [(a.exe, a.perfil, a.alcance) for a in estado.programas] == [("a.exe", "Oscuro", "ventana"), ("b2.exe", "Oscuro", "activo")]
+    assert d.lista.size() == 2 and d.var_exe.get() == "" and d.lbl_forma.cget("text") == "Añadir un programa" and cambios == [1]
+
+
+def test_guardar_cambios_sin_elegir_nada_o_con_un_nombre_repetido_da_error(dialogo_programas):
+    d, estado, cambios = dialogo_programas
+    d._guardar_cambios()
+    assert "Elige primero" in d.lbl_error.cget("text") and cambios == []
+    estado.asociar_programa("a.exe", "Oscuro")
+    estado.asociar_programa("b.exe", "Oscuro")
+    d._refrescar_lista()
+    d.lista.selection_set(1)
+    d._cargar_seleccion()
+    d.var_exe.set("a.exe")
+    d._guardar_cambios()
+    assert "ya está" in d.lbl_error.cget("text") and [a.exe for a in estado.programas] == ["a.exe", "b.exe"] and cambios == []
+
+
+def test_un_programa_cuyo_monitor_ya_no_esta_conectado_se_muestra_asi(dialogo_programas):
+    d, estado, _ = dialogo_programas
+    estado.asociar_programa("a.exe", "Oscuro", "monitor:otro-que-no-esta")
+    assert d.filas() == ["a.exe  →  Oscuro  ·  monitor no conectado"]
+
+
+def test_la_pestana_de_un_monitor_con_programa_muestra_su_nombre():
+    from vislumbra.estado import Estado
+
+    est = _estado_de_prueba()
+    est.asociar_programa("juego.exe", "Código", "monitor:m-2")
+    est.aplicar_programas(["juego.exe"], {})
+    assert [(p.numero, p.perfil, p.programa) for p in est.pestanas()] == [(1, "Normal", None), (2, "Código", "juego.exe")]

@@ -717,9 +717,9 @@ class Panel:
             self.marco_pestanas.columnconfigure(i, weight=1, uniform="pestana")
             marco.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else px(8), 0))
             titulo = f"Monitor {p.numero}" + (" · principal" if p.principal else "")
-            sub = f"{p.perfil} ({'fijo' if p.fijo else 'activo'})"
+            sub = f"{p.perfil} ({p.programa})" if p.programa else f"{p.perfil} ({'fijo' if p.fijo else 'activo'})"
             marco.bind("<Button-1>", lambda ev, n=p.numero: self._mirar(n))
-            for texto, col, fuente_ in ((titulo, TEXTO, fuente(13, True)), (sub, ACENTO if p.fijo else TEXTO_SUAVE, fuente(11))):
+            for texto, col, fuente_ in ((titulo, TEXTO, fuente(13, True)), (sub, ACENTO if (p.fijo or p.programa) else TEXTO_SUAVE, fuente(11))):
                 lbl = tk.Label(marco, text=texto, bg=fondo, fg=col, font=fuente_, anchor="w", padx=0, pady=0)
                 lbl.pack(fill="x")
                 lbl.bind("<Button-1>", lambda ev, n=p.numero: self._mirar(n))

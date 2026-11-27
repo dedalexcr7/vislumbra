@@ -14,6 +14,7 @@ from tkinter import ttk
 from . import sistema
 from .estado import Estado
 from .perfiles import ErrorPerfil
+from .programas import ALCANCE_ACTIVO, ALCANCE_VENTANA, alcance_de_monitor, clave_de_alcance
 from .widgets import (
     ACENTO, BORDE_BOTON, BORDE_VENTANA, CABECERA, CAMPO, FONDO_VENTANA, LINEA, TEXTO, Boton, fuente, nueva_posicion, px,
     rect_redondeado,
@@ -163,27 +164,40 @@ def preguntar_guardar(raiz: tk.Misc) -> bool | None:
 
 
 # --- Programas asociados a perfiles ----------------------------------------------------------------------------
+ETIQUETA_VENTANA = "El monitor donde esté el programa"
+ETIQUETA_MONITOR = "Un monitor concreto"
+ETIQUETA_ACTIVO = "El perfil activo (todos los monitores que lo siguen)"
+ETIQUETAS_ALCANCE = (ETIQUETA_VENTANA, ETIQUETA_MONITOR, ETIQUETA_ACTIVO)
+
+
 class DialogoProgramas(Dialogo):
-    """Lista de programas (.exe) y el perfil que se activa solo cuando están abiertos."""
+    """Programas (.exe) y el perfil que se activa solo cuando están abiertos, y en qué monitores.
+
+    Al elegir una fila de la lista, sus datos pasan al formulario y se pueden cambiar con «Guardar cambios»
+    (perfil, alcance e incluso el nombre del programa) sin borrar y volver a crear.
+    """
 
     _COLOR_ERROR = "#e06a5a"
 
     def __init__(self, raiz: tk.Misc, estado: Estado, procesos_abiertos: Callable[[], list[str]], al_cambiar: Callable[[], None]):
         super().__init__(
             raiz, "Programas y perfiles",
-            "Cuando uno de estos programas esté abierto se activa su perfil; al cerrarlo vuelve el que tenías.",
+            "Cuando uno de estos programas esté abierto se activa su perfil; al cerrarlo vuelve el de antes.",
             [("Cerrar", None, "activo")],
         )
         self.estado, self._procesos, self._al_cambiar = estado, procesos_abiertos, al_cambiar
+        self._monitores = {self._etiqueta_monitor(m): m.clave for m in estado.monitores}
         marco = tk.Frame(self._cuerpo, bg=FONDO_VENTANA)
         marco.pack(before=self._fila, fill="x", pady=(px(12), 0))
         self.lista = tk.Listbox(
-            marco, height=6, width=44, bg=CAMPO, fg=TEXTO, selectbackground=BORDE_BOTON, selectforeground=TEXTO, relief="flat",
+            marco, height=6, width=52, bg=CAMPO, fg=TEXTO, selectbackground=BORDE_BOTON, selectforeground=TEXTO, relief="flat",
             highlightthickness=1, highlightbackground=BORDE_BOTON, activestyle="none", exportselection=False, font=fuente(12),
         )
         self.lista.pack(fill="x")
+        self.lista.bind("<<ListboxSelect>>", lambda e: self._cargar_seleccion())
         Boton(marco, "Quitar el seleccionado", self._quitar, minimo=76).pack(anchor="e", pady=(px(6), 0))
-        tk.Label(marco, text="Añadir un programa", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12, True), anchor="w").pack(fill="x", pady=(px(10), 0))
+        self.lbl_forma = tk.Label(marco, text="Añadir un programa", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12, True), anchor="w")
+        self.lbl_forma.pack(fill="x", pady=(px(10), 0))
         self.var_exe = tk.StringVar(master=self)
         self.entrada = tk.Entry(
             marco, textvariable=self.var_exe, bg=CAMPO, fg=TEXTO, insertbackground=TEXTO, relief="flat", highlightthickness=1,
@@ -198,14 +212,34 @@ class DialogoProgramas(Dialogo):
         self.combo_abiertos.bind("<<ComboboxSelected>>", lambda e: self.var_exe.set(self.var_abiertos.get()))
         fila = tk.Frame(marco, bg=FONDO_VENTANA)
         fila.pack(fill="x", pady=(px(8), 0))
-        tk.Label(fila, text="Perfil", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12)).pack(side="left")
+        tk.Label(fila, text="Perfil", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), width=8, anchor="w").pack(side="left")
         self.var_perfil = tk.StringVar(master=self, value=estado.activo)
-        self.combo_perfil = ttk.Combobox(fila, textvariable=self.var_perfil, state="readonly", values=estado.nombres(), width=18, font=fuente(12))
-        self.combo_perfil.pack(side="left", padx=(px(8), 0))
-        Boton(fila, "Añadir", self._anadir, estilo="activo", minimo=76).pack(side="right")
+        self.combo_perfil = ttk.Combobox(fila, textvariable=self.var_perfil, state="readonly", values=estado.nombres(), width=24, font=fuente(12))
+        self.combo_perfil.pack(side="left")
+        fila2 = tk.Frame(marco, bg=FONDO_VENTANA)
+        fila2.pack(fill="x", pady=(px(6), 0))
+        tk.Label(fila2, text="Aplicar a", bg=FONDO_VENTANA, fg=TEXTO, font=fuente(12), width=8, anchor="w").pack(side="left")
+        self.var_alcance = tk.StringVar(master=self, value=ETIQUETA_VENTANA)
+        self.combo_alcance = ttk.Combobox(fila2, textvariable=self.var_alcance, state="readonly", values=list(ETIQUETAS_ALCANCE), width=24, font=fuente(12))
+        self.combo_alcance.pack(side="left")
+        self.combo_alcance.bind("<<ComboboxSelected>>", lambda e: self._alcance_cambiado())
+        self.var_monitor = tk.StringVar(master=self, value=next(iter(self._monitores), ""))
+        self.combo_monitor = ttk.Combobox(marco, textvariable=self.var_monitor, state="disabled", values=list(self._monitores), font=fuente(12))
+        self.combo_monitor.pack(fill="x", pady=(px(4), 0))
+        botones = tk.Frame(marco, bg=FONDO_VENTANA)
+        botones.pack(fill="x", pady=(px(10), 0))
+        self.btn_guardar = Boton(botones, "Guardar cambios", self._guardar_cambios, minimo=76)
+        self.btn_guardar.pack(side="right", padx=(px(8), 0))
+        Boton(botones, "Añadir", self._anadir, estilo="activo", minimo=76).pack(side="right")
         self.lbl_error = tk.Label(marco, text="", bg=FONDO_VENTANA, fg=self._COLOR_ERROR, font=fuente(11), anchor="w", justify="left", wraplength=px(self.ANCHO_TEXTO))
         self.lbl_error.pack(fill="x", pady=(px(6), 0))
+        self._editando: str | None = None  # el programa de la fila elegida
         self._refrescar_lista()
+
+    # -- datos ---------------------------------------------------------------------------------------------
+    @staticmethod
+    def _etiqueta_monitor(m) -> str:
+        return f"Monitor {m.numero}" + (" · principal" if m.principal else "")
 
     def _abiertos(self) -> list[str]:
         try:
@@ -213,35 +247,94 @@ class DialogoProgramas(Dialogo):
         except OSError:
             return []
 
+    def _texto_alcance(self, alcance: str) -> str:
+        if alcance == ALCANCE_VENTANA:
+            return "monitor donde esté"
+        clave = clave_de_alcance(alcance)
+        if clave is not None:
+            return next((et for et, c in self._monitores.items() if c == clave), "monitor no conectado")
+        return "perfil activo"
+
     def filas(self) -> list[str]:
-        return [f"{a.exe}  →  {a.perfil}" for a in self.estado.programas]
+        return [f"{a.exe}  →  {a.perfil}  ·  {self._texto_alcance(a.alcance)}" for a in self.estado.programas]
+
+    def alcance_elegido(self) -> str:
+        """El alcance que dice el formulario («activo», «ventana» o «monitor:<clave>»)."""
+        et = self.var_alcance.get()
+        if et == ETIQUETA_ACTIVO:
+            return ALCANCE_ACTIVO
+        if et == ETIQUETA_MONITOR:
+            clave = self._monitores.get(self.var_monitor.get())
+            if clave is None:
+                raise ErrorPerfil("elige el monitor.")
+            return alcance_de_monitor(clave)
+        return ALCANCE_VENTANA
+
+    def _alcance_cambiado(self) -> None:
+        self.combo_monitor.configure(state="readonly" if self.var_alcance.get() == ETIQUETA_MONITOR else "disabled")
 
     def _refrescar_lista(self) -> None:
         self.lista.delete(0, "end")
         for texto in self.filas():
             self.lista.insert("end", texto)
+        self.btn_guardar.configure(state="normal" if self._editando else "disabled")
+
+    # -- acciones ------------------------------------------------------------------------------------------
+    def _cargar_seleccion(self) -> None:
+        """Pasa la fila elegida al formulario, para cambiarla sin borrarla."""
+        seleccion = self.lista.curselection()
+        if not seleccion or seleccion[0] >= len(self.estado.programas):
+            return
+        a = self.estado.programas[seleccion[0]]
+        self._editando = a.exe
+        self.var_exe.set(a.exe)
+        self.var_perfil.set(a.perfil)
+        clave = clave_de_alcance(a.alcance)
+        if clave is not None:
+            self.var_alcance.set(ETIQUETA_MONITOR)
+            etiqueta = next((et for et, c in self._monitores.items() if c == clave), None)
+            if etiqueta:
+                self.var_monitor.set(etiqueta)
+        else:
+            self.var_alcance.set(ETIQUETA_VENTANA if a.alcance == ALCANCE_VENTANA else ETIQUETA_ACTIVO)
+        self._alcance_cambiado()
+        self.lbl_forma.configure(text=f"Cambiar «{a.exe}»")
+        self.lbl_error.configure(text="")
+
+    def _terminar(self) -> None:
+        self.lbl_error.configure(text="")
+        self._editando = None
+        self.lbl_forma.configure(text="Añadir un programa")
+        self.var_exe.set("")
+        self.lista.selection_clear(0, "end")
+        self._refrescar_lista()
+        self._al_cambiar()
+
+    def _error(self, e: Exception) -> None:
+        self.lbl_error.configure(text=str(e)[:1].upper() + str(e)[1:])
 
     def _anadir(self) -> None:
         try:
-            normal = self.estado.asociar_programa(self.var_exe.get(), self.var_perfil.get())
+            self.estado.asociar_programa(self.var_exe.get(), self.var_perfil.get(), self.alcance_elegido())
         except ErrorPerfil as e:
-            self.lbl_error.configure(text=str(e)[:1].upper() + str(e)[1:])
-            return
-        self.lbl_error.configure(text="")
-        self.var_exe.set("")
-        self._refrescar_lista()
-        self._al_cambiar()
-        return normal
+            return self._error(e)
+        self._terminar()
+
+    def _guardar_cambios(self) -> None:
+        if self._editando is None:
+            return self._error(ErrorPerfil("elige primero un programa de la lista."))
+        try:
+            self.estado.modificar_programa(self._editando, self.var_exe.get(), self.var_perfil.get(), self.alcance_elegido())
+        except ErrorPerfil as e:
+            return self._error(e)
+        self._terminar()
 
     def _quitar(self) -> None:
         seleccion = self.lista.curselection()
         if not seleccion:
-            self.lbl_error.configure(text="Elige primero un programa de la lista.")
-            return
+            return self._error(ErrorPerfil("elige primero un programa de la lista."))
         self.estado.quitar_programa(self.estado.programas[seleccion[0]].exe)
-        self.lbl_error.configure(text="")
-        self._refrescar_lista()
-        self._al_cambiar()
+        self._terminar()
 
 
 def programas(raiz: tk.Misc, estado: Estado, procesos_abiertos: Callable[[], list[str]], al_cambiar: Callable[[], None]) -> None:
