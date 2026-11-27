@@ -12,10 +12,9 @@ from __future__ import annotations
 import time
 import tkinter as tk
 from collections.abc import Callable, Sequence
-from tkinter import messagebox, simpledialog
 from typing import Protocol
 
-from . import color, escala, sistema
+from . import color, dialogos, escala, sistema
 from .estado import Estado
 from .perfiles import ErrorPerfil
 from .widgets import (  # noqa: F401  (AVISO, PELIGRO y TEXTO_SUAVE los importa app.py)
@@ -349,7 +348,7 @@ class Panel:
         self.raiz, self.estado, self.ctl, self.reloj = raiz, estado, controlador, reloj
         # Diálogos sustituibles (las pruebas no deben abrir ventanas de verdad).
         self.preguntar_texto: Callable[[str, str, str], str | None] = self._preguntar_texto
-        self.confirmar: Callable[[str, str], bool] = lambda t, m: messagebox.askyesno(t, m, parent=self.raiz)
+        self.confirmar: Callable[[str, str], bool] = lambda t, m: dialogos.confirmar(self.raiz, t, m)
         self.preguntar_guardar: Callable[[], bool | None] = self._preguntar_guardar
         self._mensaje: tuple[str, str, float] | None = None  # (texto, color, hasta)
         self._colocada = False
@@ -543,12 +542,10 @@ class Panel:
 
     # -- diálogos --------------------------------------------------------------------------------------------------------------
     def _preguntar_texto(self, titulo: str, mensaje: str, inicial: str) -> str | None:
-        return simpledialog.askstring(titulo, mensaje, initialvalue=inicial, parent=self.raiz)
+        return dialogos.preguntar_texto(self.raiz, titulo, mensaje, inicial)
 
     def _preguntar_guardar(self) -> bool | None:
-        return messagebox.askyesnocancel(
-            "Cambios sin guardar", "Hay perfiles con cambios sin guardar.\n\nSí: guardar · No: descartar · Cancelar: volver.", parent=self.raiz,
-        )
+        return dialogos.preguntar_guardar(self.raiz)
 
     def _menu_perfiles(self, e) -> None:
         """Lista de perfiles al pulsar el nombre (sustituye al desplegable)."""
