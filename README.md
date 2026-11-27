@@ -2,7 +2,16 @@
 
 App **gratuita** y sencilla para Windows que ajusta la imagen de la pantalla: brillo, contraste, gamma (global y por canal R/G/B) y temperatura de color, desde un icono en la bandeja del sistema. Pensada para ver mejor las zonas oscuras en juegos y otros usos.
 
-> **Estado:** en desarrollo (hechas la orden de terminal, el panel, la bandeja, los perfiles, el perfil por programa, los atajos globales y la compilación del `.exe`). Todavía sin probar a fondo, y la app compilada aún no se ha abierto de verdad. Consulta `PLAN.md` para el diseño y las fases.
+> **Versión 1.0.0.** Hecha y probada por una sola persona, en un solo equipo (Windows 11, 3 monitores). Funciona ahí, pero **no se ha probado en otros equipos, con otras tarjetas gráficas ni con juegos en pantalla completa exclusiva**. Si algo falla, abre una incidencia. Consulta `PLAN.md` para el diseño y `REGISTRO.md` para lo que está verificado y lo que no.
+
+## Descargar (Windows 10 u 11, 64 bits)
+1. En la página de [**Releases**](https://github.com/dedalexcr7/vislumbra/releases/latest) baja `Vislumbra-1.0.0-windows-x64.zip`.
+2. **Extrae la carpeta entera** (clic derecho → «Extraer todo») en un sitio fijo, por ejemplo `Documentos\Vislumbra`, y abre `Vislumbra.exe`. No necesita instalación ni permisos de administrador. No lo ejecutes desde dentro del `.zip`.
+3. Aparece el icono en la bandeja (junto al reloj; puede estar en la flecha `^`) y el panel.
+
+**Windows puede avisar** («Windows protegió su PC»): el programa no está firmado, porque la firma de código es de pago. Para abrirlo: **Más información → Ejecutar de todas formas**. Si quieres comprobar que el archivo es el original, compara su huella SHA-256 con la de las notas de la release (`Get-FileHash .\Vislumbra-1.0.0-windows-x64.zip` en PowerShell). El código completo está en este repositorio y puedes compilarlo tú (ver más abajo).
+
+**Si la pantalla se queda mal:** pulsa **Ctrl+Alt+0** (emergencia), o desde una terminal en la carpeta ejecuta `vislumbra-cli.exe --reset`. Cerrar la app con «Salir» también la restaura.
 
 ## Qué pretende ofrecer
 - Control fino de los valores (modo preciso, rueda del ratón, campo numérico).
@@ -50,24 +59,25 @@ Con `--persist` la rampa sigue aplicada cuando el proceso ya ha terminado. Compr
 Los rangos se calibraron en un solo equipo y pueden ajustarse. La orden rechaza ajustes que dejarían la pantalla casi ilegible, y Windows rechaza los que se desvían demasiado de la rampa neutra (por ejemplo, temperaturas por debajo de unos 3300 K).
 
 ## El `.exe` (empaquetado)
-Se compila con PyInstaller; lo compilado (`dist\`, `build\`) nunca se sube al repositorio.
+Se compila con PyInstaller; lo compilado (`dist\`, `build\`) nunca se sube al repositorio; se reparte como `.zip` en las [Releases](https://github.com/dedalexcr7/vislumbra/releases).
 
 ```
 pip install -r requirements-build.txt
-python herramientas/compilar.py             # crea dist\Vislumbrapython herramientas/probar_exe.py           # prueba de humo: no toca la pantalla ni tu %APPDATA%
+python herramientas/compilar.py             # crea dist\Vislumbra\
+python herramientas/probar_exe.py           # prueba de humo: no toca la pantalla ni tu %APPDATA%
 ```
 
 - **Dos ejecutables** en la misma carpeta, con el mismo código y las mismas opciones: `Vislumbra.exe` (sin ventana de terminal: doble clic o «Iniciar con Windows») y `vislumbra-cli.exe` (con terminal: `--list`, `--reset`, `--perfil`, `--help`...). Si la pantalla se queda mal, `vislumbra-cli.exe --reset` es la salida de emergencia, junto con **Ctrl+Alt+0**.
 - **Mantén juntos el `.exe` y la carpeta `_internal`**: `Vislumbra.exe` no funciona sin ella. Para repartirlo, comprime la carpeta entera en un `.zip`.
-- **Sin terminal no hay dónde escribir los errores:** lo que saldría por pantalla (un error interno, o `--version` o `--help` lanzados desde `Vislumbra.exe`) se guarda en `%APPDATA%\Vislumbraislumbra.log`, que se crea solo si hay algo que escribir y se recorta al pasar de 256 KB. **Puede contener rutas de tu equipo** (por ejemplo, en un error): revísalo antes de compartirlo. No se envía a ningún sitio.
-- **Sin firmar:** Windows (SmartScreen, Smart App Control) o un antivirus pueden avisar al abrir un `.exe` sin firma y sin reputación, sobre todo si se descarga de Internet. **No está verificado** más allá de un análisis local de Windows Defender sobre una compilación de prueba.
-- El `.exe` lleva dentro Python 3.10, cuyo soporte termina en octubre de 2026 (PEP 619): antes de repartirlo conviene compilar con una versión con soporte.
+- **Sin terminal no hay dónde escribir los errores:** lo que saldría por pantalla (un error interno, o `--version` o `--help` lanzados desde `Vislumbra.exe`) se guarda en `%APPDATA%\Vislumbra\vislumbra.log`, que se crea solo si hay algo que escribir y se recorta al pasar de 256 KB. **Puede contener rutas de tu equipo** (por ejemplo, en un error): revísalo antes de compartirlo. No se envía a ningún sitio.
+- **Sin firmar:** Windows (SmartScreen, Smart App Control) o un antivirus pueden avisar al abrir un `.exe` sin firma y sin reputación, sobre todo si se descarga de Internet. **No está verificado** más allá de un análisis local de Windows Defender sobre una compilación de prueba. Smart App Control, si está activo, puede bloquearlo sin opción de «Ejecutar de todas formas».
+- El `.exe` de la 1.0.0 se compiló con **Python 3.12**.
 
 ## Cómo funciona
 Usa la rampa de gamma de Windows (GDI), sin tocar el registro ni los drivers. La configuración de cada usuario se guarda en `%APPDATA%\Vislumbra`, fuera del repositorio. El archivo guarda, para recordar qué perfil lleva cada monitor, el identificador de Windows de cada monitor (incluye un código del modelo); no se envía a ningún sitio.
 
 ## Logo
-El logo (`assets/logo.png`) se generó con ChatGPT, e incluye la credencial de contenido (C2PA) que incrusta el generador. Los iconos de la bandeja salen de él con `herramientas/generar_iconos.py`. **Pendiente antes de hacer público el repositorio:** revisar los términos vigentes de OpenAI sobre la propiedad de lo generado y anotar aquí el resultado.
+El logo (`assets/logo.png`) se generó con ChatGPT, e incluye la credencial de contenido (C2PA) que incrusta el generador. Los iconos de la bandeja salen de él con `herramientas/generar_iconos.py`. Según los términos de uso de OpenAI (consultados el 2026-11-27), quien genera la imagen es su titular y OpenAI le cede los derechos que pudiera tener; no es asesoramiento legal, y es posible que una imagen generada por IA no tenga protección de copyright. El autor la publica con el resto del proyecto bajo la GPL v3 en la medida en que pueda.
 
 ## Licencia
 [GNU GPL v3](LICENSE). Dependencias: `pystray` (LGPLv3) y `Pillow` (MIT-CMU), compatibles con GPL v3. Solo para desarrollo: `pytest` (MIT). Solo para compilar el `.exe`: `pyinstaller` (GPLv2 o posterior con una excepción que permite distribuir los programas con su cargador incrustado; compatible con GPL v3; `requirements-build.txt`). Los atajos usan `ctypes` y la API de Windows, sin librerías de teclado.
