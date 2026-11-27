@@ -2,6 +2,21 @@
 
 Una entrada por sesión, la más reciente arriba. Formato: fecha · tipo de sesión (planificación / creación / test) · qué se hizo · qué falta · qué debe probarse.
 
+## 2026-11-27 · creación (cierre del retoque visual y relevo para el empaquetado)
+- **Hecho desde la entrada del retoque visual** (detalle en esa entrada, más abajo): el diálogo «Programas y perfiles» (de otra sesión) se pasó al aspecto de la maqueta con `widgets.Selector` y `widgets.CampoRedondo` (sustituyen a `ttk.Combobox` y `Entry`) y la lista en una `Tarjeta`; los desplegables y la lista de perfiles del panel ya no se reabren al pulsar con la lista abierta (`Selector.PAUSA_REAPERTURA`, 0,6 s). Último commit de código: `0878524`.
+- **Verificado por ejecución:** `pytest -q` 690 en verde y 6 saltadas; captura del diálogo de programas.
+- **Confirmado por el autor mirando** (app real): todo el panel, diálogos oscuros, menú de la bandeja oscuro, icono, y el cierre de los desplegables con un segundo clic.
+- **Sigue sin verificar:** DPI distintos de 1,25, tema claro de Windows, icono a 16 px, que `menus_oscuros` (uxtheme sin documentar) siga funcionando tras actualizar Windows (si falla, el menú sale claro), y un clic rápido tras elegir un valor (se ignora una vez por el margen de 0,6 s).
+- **Relevo para la sesión de creación del `.exe` (fase 6, `PLAN.md`):** no hay nada de empaquetado hecho ni probado; PyInstaller no está en `requirements-dev.txt`. Antes de empezar, plan con el autor (toca varios archivos) y estas cuestiones:
+  - **Licencia:** comprobar la de PyInstaller (y la de su bootloader) frente a GPL v3 antes de añadirlo, como con toda dependencia.
+  - **Recursos:** el programa lee `assets/iconos/*.png` por ruta relativa al paquete (`tray.ICONOS`); hay que incluirlos en el `.exe` y resolver la ruta cuando corra congelado (`sys._MEIPASS`). Falta un `.ico` para el ejecutable.
+  - **Sin consola:** el `.exe` debe ser de ventana (sin terminal); `pythonw` y los mensajes que hoy salen por `print` o `stderr` no se han probado.
+  - **Se pierde en el `.exe`:** `--list`, `--simulate`, `--perfil` y `--reset` usan la terminal; comprobar que siguen funcionando (y la comunicación con la instancia abierta por eventos con nombre) desde el ejecutable.
+  - **Hallazgo pendiente:** `assets/logo.png` lleva la credencial C2PA de OpenAI (ver la entrada de la fase 2); revisar los términos antes de publicar el `.exe` o el repositorio.
+  - **Arranque con Windows:** es opcional y toca el registro o la carpeta de inicio: **preguntar y pedir OK explícito antes** (regla del proyecto).
+  - **Probar el `.exe` real:** arranque, instancia única, bandeja, panel con DPI, perfiles en `%APPDATA%\Vislumbra`, `--reset`, cierre y restauración de la rampa. Tras cualquier prueba que toque la gamma, `--reset`.
+  - **Antivirus:** los `.exe` de PyInstaller a veces dan falsos positivos; no se ha comprobado. La compilación se hace sin `push` ni cambios de visibilidad del repositorio.
+
 ## 2026-11-26 · creación (programas por monitor y edición de asociaciones)
 - **Petición del autor:** que el perfil de un programa se aplique solo al monitor donde se abre (tiene todos los monitores en perfil fijo y el principal con el activo), y poder cambiar monitor o perfil de un programa sin borrarlo y empezar de cero.
 - **Verificado antes de implementar (lectura, sin tocar la pantalla):** Windows dice en qué monitor está la ventana de cada programa (`EnumWindows` + `MonitorFromWindow` + `GetMonitorInfoW`): con programas abiertos devolvió los dispositivos de los 3 monitores reales; unos 14 ms por lectura.

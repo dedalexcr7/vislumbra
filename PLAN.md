@@ -110,7 +110,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
   - Duplicar, reordenar, importar y exportar perfiles.
 - **Fase 4 – Perfil por juego** (**implementada**, pendiente de probar en un juego; ver `REGISTRO.md`): el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
-- **Fase 6 – Empaquetado (opcional):** `.exe` con PyInstaller y arranque con Windows.
+- **Fase 6 – Empaquetado (opcional, siguiente):** `.exe` con PyInstaller y arranque con Windows (este último, solo con OK explícito). Puntos a resolver y relevo en la entrada del 2026-11-27 de `REGISTRO.md`.
 
 ## Riesgos conocidos
 - Windows ignora rampas muy alejadas de la lineal; el efecto puede ser más suave que en RivaTuner antiguo. Esto se mide en la primera sesión de test antes de pasar a la fase 5.
