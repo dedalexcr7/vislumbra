@@ -1,6 +1,6 @@
 # Plan de la fase 6: empaquetado como `.exe`
 
-**Estado: pendiente de aprobación del autor.** Las decisiones de §9 llevan marcada la opción recomendada. Lo ejecuta una sesión de creación; después, una sesión de test del `.exe` (§7).
+**Estado: aprobado por el autor.** D1 a D4 de §9 se aprobaron con la opción recomendada; D5 a D7 quedan con la recomendada por defecto (el autor puede cambiarlas). **Orden:** la fase 3 (atajos globales) **ya está implementada** (2026-11-27, sin probar con las teclas reales); ahora toca la sesión de creación de este plan y luego una sesión de test del `.exe` (§7).
 
 ## 0. Punto de partida (verificado al planificar)
 Todo lo de esta sección sale de ejecutar o leer, sin tocar la gamma ni el repositorio. La compilación de prueba se hizo en un entorno virtual y una carpeta temporales, fuera del proyecto.
@@ -19,7 +19,7 @@ Todo lo de esta sección sale de ejecutar o leer, sin tocar la gamma ni el repos
 - **`assets/vislumbra.ico` ya existe** (6 tamaños, de 16 a 256 px; lo genera `herramientas/generar_iconos.py`). El relevo del 2026-11-27 decía que faltaba: ya no.
 - **Único recurso que el programa lee de disco:** los iconos PNG de la bandeja (`assets/iconos/`; solo se usa el de 64 px). El logo del panel se dibuja con código. `assets/logo.png` **no** se incluye en el `.exe`.
 - **C2PA:** `logo.png` contiene la credencial de OpenAI; **ni `vislumbra.ico` ni los glifos PNG la contienen** (búsqueda de bytes). La pregunta de los términos de OpenAI sigue pendiente, pero afecta a lo derivado del logo, no a un metadato oculto.
-- **`keyboard`:** no se importa en ninguna parte; la prueba se compiló sin ella y funcionó. Se quita en la fase 3.
+- **`keyboard`:** no se importaba en ninguna parte; la prueba se compiló sin ella y funcionó. La fase 3 ya la quitó de `requirements.txt`. **Nuevo desde la fase 3:** `teclado.py` (atajos con `RegisterHotKey`), que esta compilación de prueba **no** incluía: la creación debe comprobar que entra en el `.exe`.
 - **«Iniciar con Windows» ya contempla el `.exe`:** `arranque.destino_por_defecto()` usa `sys.executable` con `--oculto` si está congelado.
 
 ## 1. Alcance
@@ -95,7 +95,7 @@ No cambia: es la casilla opcional de la bandeja, que ya crea un acceso directo e
 5. Documentación: README, `PLAN.md` y `REGISTRO.md`.
 
 ## 5. Comprobación mínima de la sesión de creación
-Compilar; `probar_exe.py` en verde; `pytest -q` sin regresiones (690 en verde y 6 saltadas de partida, más las nuevas); lanzar `Vislumbra.exe --version` sin redirecciones no debe dejar una ventana de error de PyInstaller. **No** se prueba a fondo la app: eso es §7.
+Compilar; `probar_exe.py` en verde; `pytest -q` sin regresiones (837 en verde y 6 saltadas de partida tras la fase 3, más las nuevas); lanzar `Vislumbra.exe --version` sin redirecciones no debe dejar una ventana de error de PyInstaller. **No** se prueba a fondo la app: eso es §7.
 
 ## 6. Riesgos
 - **Falsos positivos de antivirus.** Solo se probó Windows Defender en local. No se ha subido nada a servicios externos (subirlo es enviar el archivo a terceros: solo con OK).
@@ -106,21 +106,22 @@ Compilar; `probar_exe.py` en verde; `pytest -q` sin regresiones (690 en verde y 
 - Carpeta movida o `_internal\` borrada: el `.exe` no arranca; el aviso del acceso directo de Inicio ya detecta que el destino no existe.
 
 ## 7. Qué probará la sesión de test del `.exe`
-**Por ejecución** (sin tocar la pantalla): `probar_exe.py`; registro de errores sin consola; el arranque de `Vislumbra.exe` desde una carpeta con espacios y tildes y desde otra unidad; instancia única (segundo `Vislumbra.exe` avisa al primero); `vislumbra-cli.exe --perfil` con la app abierta; `vislumbra-cli.exe --reset` con la app abierta (suelta la pantalla) y sin ella.
-**Con el autor mirando** (lista visual): doble clic abre bandeja y panel; icono del `.exe` en el Explorador y de la bandeja (claro y oscuro); el panel idéntico al de `python -m vislumbra` con DPI 1,25; un ajuste real se aplica; «Salir» restaura la pantalla; cerrar desde el Administrador de tareas y `--reset`; «Iniciar con Windows» (crea el acceso, apunta al `.exe`, **reiniciar sesión y ver que arranca solo con el icono**); mover la carpeta y ver el aviso; arranque en frío (tiempo hasta ver el icono).
+**Por ejecución** (sin tocar la pantalla): `probar_exe.py`; los atajos del `.exe` (registro de combinaciones y errores de conflicto); registro de errores sin consola; el arranque de `Vislumbra.exe` desde una carpeta con espacios y tildes y desde otra unidad; instancia única (segundo `Vislumbra.exe` avisa al primero); `vislumbra-cli.exe --perfil` con la app abierta; `vislumbra-cli.exe --reset` con la app abierta (suelta la pantalla) y sin ella.
+**Con el autor mirando** (lista visual): **pulsar de verdad** Ctrl+Alt+P y Ctrl+Alt+0 (emergencia) con el `.exe` (ninguna combinación se ha pulsado aún, ni siquiera con Python; ver `docs/plan-fase-3.md` §7); doble clic abre bandeja y panel; icono del `.exe` en el Explorador y de la bandeja (claro y oscuro); el panel idéntico al de `python -m vislumbra` con DPI 1,25; un ajuste real se aplica; «Salir» restaura la pantalla; cerrar desde el Administrador de tareas y `--reset`; «Iniciar con Windows» (crea el acceso, apunta al `.exe`, **reiniciar sesión y ver que arranca solo con el icono**); mover la carpeta y ver el aviso; arranque en frío (tiempo hasta ver el icono).
 Tras cualquier prueba que toque la gamma: `vislumbra-cli.exe --reset`.
 
 ## 8. Qué se queda sin verificar al planificar
 Funcionamiento de la **app** compilada (solo se probó la consola y una sonda; no se abrió la app real para no tocar la gamma sin que el autor mire); un `.exe` sin consola lanzado desde un acceso directo real; SmartScreen y Smart App Control; otros antivirus; Windows 10 (la app usa DWM de Windows 11 para las esquinas, ya con respaldo); otras resoluciones y DPI.
 
 ## 9. Decisiones del autor
+D1 a D4: **aprobadas con la opción recomendada** (2026-11-27). D5 a D7: recomendada por defecto, sin objeción.
 
 | # | Decisión | Recomendada | Alternativa |
 |---|---|---|---|
 | D1 | Formato de entrega | **Carpeta + `.zip` portable** (arranque 0,2 s) | Un solo `.exe` (~2 s por arranque) o instalador (después) |
 | D2 | Ejecutables | **Dos:** `Vislumbra.exe` sin consola y `vislumbra-cli.exe` con consola | Uno solo sin consola (las órdenes `--list`, `--help`… no se verían) |
 | D3 | Errores sin consola | **Registro en `%APPDATA%\Vislumbra\vislumbra.log`** con tope de tamaño | Descartarlos (más simple, pero sin pistas ante un fallo) |
-| D4 | Orden con la fase 3 | **Fase 3 primero** (se quita `keyboard` y el `.exe` ya incluye los atajos y la emergencia por teclado) | Empaquetar ya (`keyboard` ya no se usa; se vuelve a compilar tras la fase 3) |
+| D4 | Orden con la fase 3 | **Fase 3 primero** (hecho) (se quita `keyboard` y el `.exe` ya incluye los atajos y la emergencia por teclado) | Empaquetar ya (`keyboard` ya no se usa; se vuelve a compilar tras la fase 3) |
 | D5 | `pyinstaller` en un `requirements-build.txt` aparte | Sí | En `requirements-dev.txt` |
 | D6 | Copyright en las propiedades del `.exe` | Omitirlo hasta decidir el nombre | Poner el usuario de GitHub |
 | D7 | Firma, instalador, release y subida a VirusTotal | **Fuera de esta fase** | — |

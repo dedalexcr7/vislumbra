@@ -89,9 +89,10 @@ vislumbra/
 │  ├─ app.py          (fase 2) arranque y cierre de la app
 │  ├─ atajos.py       (fase 3) combinaciones de teclas, validación y valores por defecto (lógica pura)
 │  ├─ teclado.py      (fase 3) atajos globales con RegisterHotKey en su propio hilo
+│  ├─ bitacora.py     (fase 6) registro de errores en %APPDATA% cuando no hay consola
 │  └─ watcher.py      perfil automático por proceso (fase 4)
 ├─ assets/            (fase 2) logo e iconos
-├─ herramientas/      (fase 2) generar_iconos.py
+├─ herramientas/      (fase 2) generar_iconos.py; (fase 6) lanzador.py, vislumbra.spec, compilar.py, probar_exe.py
 └─ tests/             pytest sobre las funciones puras y lectura/escritura de rampa
 ```
 
@@ -113,7 +114,11 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
   - **Aparcado para después:** duplicar, reordenar, importar y exportar perfiles y atajos; ajuste rápido de gamma o brillo con atajos.
 - **Fase 4 – Perfil por juego** (**implementada**, pendiente de probar en un juego; ver `REGISTRO.md`): el usuario asocia a un perfil el `.exe` de cualquier juego o programa; la app lo detecta, aplica el perfil y restaura al cerrarlo.
 - **Fase 5 – Avanzado (solo si la 1–3 se quedan cortas):** ampliar el rango de la rampa con la clave de registro `GdiICMGammaRange`, o usar la API del driver (NVAPI / AMD ADL). **Requiere preguntar y tener un plan de reversión antes de tocar nada.**
-- **Fase 6 – Empaquetado (opcional, siguiente):** `.exe` con PyInstaller y arranque con Windows (este último, solo con OK explícito). Puntos a resolver y relevo en la entrada del 2026-11-27 de `REGISTRO.md`.
+- **Fase 6 – Empaquetado** (plan aprobado: `docs/plan-fase-6.md`; se hace **después de la fase 3**):
+  - PyInstaller en carpeta (`onedir`) repartida en `.zip`, con **dos ejecutables**: `Vislumbra.exe` (sin consola) y `vislumbra-cli.exe` (con consola, para `--list`, `--reset`, `--perfil`).
+  - Arreglo de `stdout`/`stderr` nulos sin consola (hoy `--help`, `--version` y los errores de uso fallan) y registro de errores en `%APPDATA%\Vislumbra\vislumbra.log`.
+  - Script de compilación y prueba de humo en `herramientas/`; `pyinstaller` solo en `requirements-build.txt`.
+  - «Iniciar con Windows» ya apunta al `.exe` (casilla opcional, sin registro); se prueba con el `.exe` real. Firma, instalador y release quedan fuera.
 
 ## Riesgos conocidos
 - Windows ignora rampas muy alejadas de la lineal; el efecto puede ser más suave que en RivaTuner antiguo. Esto se mide en la primera sesión de test antes de pasar a la fase 5.
