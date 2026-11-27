@@ -326,3 +326,64 @@ def test_el_alcance_se_guarda_y_se_lee_y_lo_desconocido_cae_al_perfil_activo(tmp
     ruta.write_text(json.dumps(datos), encoding="utf-8")
     leida, avisos = perfiles.cargar(ruta)
     assert avisos == [] and [x.alcance for x in leida.programas] == ["activo", "activo", "monitor:CLAVE-1"]
+
+
+# --- Atajos de teclado en config.json -----------------------------------------------------------------------------------
+def test_los_atajos_se_guardan_y_se_leen_de_ida_y_vuelta(tmp_path, conf):
+    from vislumbra.atajos import parsear
+
+    conf.atajos.asignar_accion("preciso", parsear("Ctrl+Alt+M"))
+    conf.atajos.asignar_perfil("Oscuro", parsear("Ctrl+Alt+2"))
+    conf.atajos.asignar_perfil("Normal", parsear("Ctrl+Alt+1"))
+    conf.atajos.aviso = "sonido"
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    leida, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and leida.atajos == conf.atajos
+    assert json.loads(ruta.read_text(encoding="utf-8"))["version"] == 1
+    assert json.loads(ruta.read_text(encoding="utf-8"))["atajos"]["perfiles"] == {"Oscuro": "Ctrl+Alt+2", "Normal": "Ctrl+Alt+1"}
+
+
+def test_un_archivo_sin_atajos_usa_los_valores_por_defecto_sin_avisos(tmp_path, conf):
+    from vislumbra.atajos import Atajos
+
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    datos.pop("atajos")
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    leida, avisos = perfiles.cargar(ruta)
+    assert avisos == [] and leida.atajos == Atajos.por_defecto()
+
+
+def test_un_atajo_malo_no_estropea_el_archivo_y_se_avisa(tmp_path, conf):
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    datos["atajos"]["acciones"]["siguiente"] = "Shift+P"
+    datos["atajos"]["perfiles"] = {"Oscuro": "Ctrl+Alt+2", "Borrado": "Ctrl+Alt+3"}
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    leida, avisos = perfiles.cargar(ruta)
+    assert len(avisos) == 1 and "Mayús sola" in avisos[0]
+    assert leida.nombres() == [NORMAL, "Oscuro", "Código"]  # el archivo no se apartó
+    assert leida.atajos.acciones["siguiente"] is None and list(leida.atajos.perfiles) == ["Oscuro"]
+    assert list(tmp_path.glob("config.da*")) == []
+
+
+def test_un_campo_atajos_ilegible_vuelve_a_los_valores_por_defecto_con_aviso(tmp_path, conf):
+    from vislumbra.atajos import Atajos
+
+    ruta = perfiles.guardar_en(conf, tmp_path / "c.json")
+    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    datos["atajos"] = "esto no es un diccionario"
+    ruta.write_text(json.dumps(datos), encoding="utf-8")
+    leida, avisos = perfiles.cargar(ruta)
+    assert len(avisos) == 1 and leida.atajos == Atajos.por_defecto()
+
+
+def test_renombrar_mueve_el_atajo_de_perfil_y_borrar_lo_quita(conf):
+    from vislumbra.atajos import parsear
+
+    conf.atajos.asignar_perfil("Oscuro", parsear("Ctrl+Alt+2"))
+    conf.atajos.asignar_perfil("Código", parsear("Ctrl+Alt+3"))
+    conf.renombrar("Oscuro", "Noche")
+    assert conf.atajos.perfiles["Noche"].texto() == "Ctrl+Alt+2" and "Oscuro" not in conf.atajos.perfiles
+    conf.borrar("Código")
+    assert list(conf.atajos.perfiles) == ["Noche"]

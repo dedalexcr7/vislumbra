@@ -700,3 +700,79 @@ def test_modificar_un_programa_sin_borrarlo():
     with pytest.raises(ErrorPerfil):
         est.modificar_programa("b.exe", "malo.bat", "Oscuro", "activo")
     assert est.exes_con_ventana() == {"b.exe"}
+
+
+# --- Atajos de teclado -----------------------------------------------------------------------------------------------------
+def test_asignar_y_quitar_atajos_de_accion_y_de_perfil():
+    from vislumbra.atajos import ErrorAtajo, parsear
+
+    est = con_oscuro_activo()
+    est.asignar_atajo(("accion", "preciso"), parsear("Ctrl+Alt+M"))
+    est.asignar_atajo(("perfil", "código"), parsear("Ctrl+Alt+2"))  # sin distinguir mayúsculas: se guarda con su nombre
+    est.asignar_atajo(("perfil", "Normal"), parsear("Ctrl+Alt+1"))  # Normal admite atajo
+    assert est.atajos.perfiles["Código"].texto() == "Ctrl+Alt+2" and est.atajos.acciones["preciso"].texto() == "Ctrl+Alt+M"
+    assert set(est.mapa_atajos()) >= {("accion", "siguiente"), ("perfil", "Código"), ("perfil", "Normal"), ("accion", "preciso")}
+    est.asignar_atajo(("perfil", "Código"), None)
+    assert "Código" not in est.atajos.perfiles
+    with pytest.raises(ErrorAtajo, match="ya la usa «Siguiente perfil»"):
+        est.asignar_atajo(("perfil", "Oscuro"), parsear("Ctrl+Alt+P"))
+    with pytest.raises(ErrorAtajo, match="no quitar"):
+        est.asignar_atajo(("accion", "emergencia"), None)
+    with pytest.raises(PerfilNoEncontrado):
+        est.asignar_atajo(("perfil", "Nada"), parsear("Ctrl+Alt+7"))
+    with pytest.raises(ErrorAtajo):
+        est.asignar_atajo(("cosa", "x"), parsear("Ctrl+Alt+7"))
+
+
+def test_renombrar_y_borrar_un_perfil_arrastra_su_atajo():
+    from vislumbra.atajos import parsear
+
+    est = con_oscuro_activo()
+    est.asignar_atajo(("perfil", "Oscuro"), parsear("Ctrl+Alt+2"))
+    est.mirar(2)
+    est.renombrar("Noche")
+    assert list(est.atajos.perfiles) == ["Noche"] and est.conf_persistible().atajos.perfiles["Noche"].texto() == "Ctrl+Alt+2"
+    est.borrar()
+    assert est.atajos.perfiles == {}
+
+
+def test_un_atajo_de_un_perfil_sin_guardar_no_se_persiste_ni_se_registra_hasta_guardarlo(e):
+    from vislumbra.atajos import parsear
+
+    e.mover("gamma", 1.4)  # «Perfil 1», sin guardar
+    e.asignar_atajo(("perfil", "Perfil 1"), parsear("Ctrl+Alt+7"))
+    assert ("perfil", "Perfil 1") in e.mapa_atajos() and "Perfil 1" not in e.conf_persistible().atajos.perfiles
+    e.guardar()
+    assert "Perfil 1" in e.conf_persistible().atajos.perfiles
+
+
+def test_descartar_un_perfil_nuevo_quita_su_atajo(e):
+    from vislumbra.atajos import parsear
+
+    e.mover("gamma", 1.4)
+    e.asignar_atajo(("perfil", "Perfil 1"), parsear("Ctrl+Alt+7"))
+    e.descartar()
+    assert e.atajos.perfiles == {}
+
+
+def test_restaurar_atajos_y_aviso():
+    from vislumbra.atajos import ErrorAtajo, parsear
+
+    est = con_oscuro_activo()
+    est.asignar_atajo(("accion", "siguiente"), parsear("Ctrl+Alt+F9"))
+    est.asignar_atajo(("perfil", "Oscuro"), parsear("Ctrl+Alt+2"))
+    assert est.restaurar_atajos() == [] and est.atajos.acciones["siguiente"].texto() == "Ctrl+Alt+P"
+    assert "Oscuro" in est.atajos.perfiles  # los de perfil no se tocan
+    est.poner_aviso_atajos("sonido")
+    assert est.conf_persistible().atajos.aviso == "sonido"
+    with pytest.raises(ErrorAtajo):
+        est.poner_aviso_atajos("gritar")
+
+
+def test_el_estado_no_modifica_los_atajos_de_la_configuracion_guardada_hasta_persistir():
+    from vislumbra.atajos import parsear
+
+    conf = configuracion()
+    est = Estado(conf, MONS)
+    est.asignar_atajo(("accion", "preciso"), parsear("Ctrl+Alt+M"))
+    assert conf.atajos.acciones["preciso"] is None

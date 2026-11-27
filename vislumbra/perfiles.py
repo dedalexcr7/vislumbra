@@ -23,6 +23,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import color
+from .atajos import Atajos
 from .color import Ajuste, AjusteCanal
 from .programas import ALCANCE_ACTIVO, Asociacion, ErrorPrograma, normalizar_alcance, normalizar_exe
 
@@ -130,6 +131,8 @@ class Configuracion:
     perfil_activo: str = NORMAL
     monitores: dict[str, str | None] = field(default_factory=dict)  # clave -> None (activo) o nombre fijo
     programas: list[Asociacion] = field(default_factory=list)  # programa (.exe) -> perfil que se activa solo
+    atajos: Atajos = field(default_factory=Atajos.por_defecto)  # atajos de teclado globales
+    avisos_lectura: list[str] = field(default_factory=list, repr=False, compare=False)  # lo que se descartó al leer
 
     # -- consulta
     def todos(self) -> list[Perfil]:
@@ -212,6 +215,7 @@ class Configuracion:
         self.programas = [
             replace(a, perfil=limpio) if _clave(a.perfil) == _clave(actual.nombre) else a for a in self.programas
         ]
+        self.atajos.renombrar_perfil(actual.nombre, limpio)
         return limpio
 
     def borrar(self, nombre: str) -> None:
@@ -227,6 +231,7 @@ class Configuracion:
             for k, v in self.monitores.items()
         }
         self.programas = [a for a in self.programas if _clave(a.perfil) != _clave(actual.nombre)]
+        self.atajos.quitar_perfil(actual.nombre)
 
     def activar(self, nombre: str) -> Perfil:
         perfil = self.obtener(nombre)
@@ -270,6 +275,7 @@ class Configuracion:
             "perfiles": [_perfil_a_json(p) for p in self.perfiles],
             "perfil_activo": self.perfil_activo,
             "programas": [{"exe": a.exe, "perfil": a.perfil, "alcance": a.alcance} for a in self.programas],
+            "atajos": self.atajos.a_json(),
             "monitores": {
                 k: ({"asignacion": ASIGNACION_ACTIVO} if v is None
                     else {"asignacion": ASIGNACION_FIJO, "perfil": v})
@@ -317,6 +323,7 @@ class Configuracion:
             # Un perfil que ya no existe o un programa repetido se ignoran (no hacen dañado el archivo).
             if conf.existe(d["perfil"]) and not any(a.exe == exe for a in conf.programas):
                 conf.programas.append(Asociacion(exe, conf.obtener(d["perfil"]).nombre, normalizar_alcance(d.get("alcance"))))
+        conf.atajos, conf.avisos_lectura = Atajos.de_json(datos.get("atajos"), perfiles=conf.nombres())
         return conf
 
 
@@ -363,7 +370,8 @@ def cargar(ruta: Path | None = None) -> tuple[Configuracion, list[str]]:
         return Configuracion(), []
     try:
         datos = json.loads(ruta.read_text(encoding="utf-8"))
-        return Configuracion.de_json(datos), []
+        conf = Configuracion.de_json(datos)
+        return conf, list(conf.avisos_lectura)
     except (ValueError, OSError, color.ErrorColor) as e:  # JSON roto, formato, rangos o rampa peligrosa
         motivo = str(e)
     try:

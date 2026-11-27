@@ -21,6 +21,7 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from . import color, escala
+from .atajos import Atajos, Combinacion, ErrorAtajo
 from .color import Ajuste, ErrorColor, Rampa
 from .perfiles import NORMAL, Configuracion, ErrorPerfil, Perfil, PerfilNoEncontrado, _clave
 from .programas import (
@@ -78,6 +79,7 @@ class Estado:
         self._fijos: dict[str, str | None] = dict(conf.monitores)
         self.programas: list[Asociacion] = list(conf.programas)  # programa -> perfil que se activa solo
         self._auto: _Automatico | None = None
+        self.atajos: Atajos = conf.atajos.copia()  # atajos globales (se editan en el diálogo «Atajos…»)
         self._sobre: dict[str, tuple[str, str]] = {}  # clave de monitor -> (programa, perfil) puesto por un programa
         self.programa_global: str | None = None  # el programa que cambió el perfil activo, si lo hay
         self._trabajo: dict[str, Perfil] = {}  # copias con cambios sin guardar, por nombre
@@ -234,6 +236,10 @@ class Estado:
         for k, v in list(self._fijos.items()):
             if v is not None and _clave(v) == _clave(viejo):
                 self._fijos[k] = nuevo
+        if nuevo:
+            self.atajos.renombrar_perfil(viejo, nuevo)
+        else:
+            self.atajos.quitar_perfil(viejo)
         nuevas = []
         for a in self.programas:
             if _clave(a.perfil) == _clave(viejo):
@@ -253,6 +259,35 @@ class Estado:
                 self._auto.antes = nuevo or NORMAL
             if _clave(self._auto.aplicado) == _clave(viejo):
                 self._auto.aplicado = nuevo or NORMAL
+
+    # -- atajos de teclado -------------------------------------------------------------------------------------------
+    def asignar_atajo(self, clave: tuple[str, str], comb: Combinacion | None) -> None:
+        """Asigna o quita (``None``) un atajo. ``clave``: ``("accion", "siguiente")`` o ``("perfil", "Código")``.
+
+        Lanza ``ErrorAtajo`` si no es válido, está repetido (dice quién la usa) o se intenta quitar la emergencia.
+        """
+        tipo, nombre = clave
+        if tipo == "accion":
+            self.atajos.asignar_accion(nombre, comb)
+        elif tipo == "perfil":
+            if not self._existe(nombre):
+                raise PerfilNoEncontrado(f"el perfil «{nombre}» no existe.")
+            self.atajos.asignar_perfil(self._perfil(nombre).nombre, comb)
+        else:
+            raise ErrorAtajo("tipo de atajo desconocido.")
+
+    def restaurar_atajos(self) -> list[str]:
+        """Pone los atajos de las acciones en sus valores por defecto (los de perfil no se tocan)."""
+        return self.atajos.restaurar_defectos()
+
+    def poner_aviso_atajos(self, aviso: str) -> None:
+        if aviso not in ("ninguno", "sonido", "notificacion"):
+            raise ErrorAtajo("aviso no válido.")
+        self.atajos.aviso = aviso
+
+    def mapa_atajos(self) -> dict[tuple[str, str], Combinacion]:
+        """Lo que hay que registrar en Windows: solo atajos de perfiles que existen."""
+        return {k: c for k, c in self.atajos.elementos() if k[0] == "accion" or self._existe(k[1])}
 
     # -- programas: perfil automático ----------------------------------------------------------------------------
     def asociar_programa(self, exe: str, nombre: str, alcance: str = ALCANCE_ACTIVO) -> str:
@@ -640,6 +675,12 @@ class Estado:
                 self.aviso = f"«{p.nombre}» no se puede aplicar: {e}"
         return salida
 
+    def _atajos_guardables(self, guardado) -> Atajos:
+        """Los atajos tal cual, salvo los de perfiles que aún no están guardados."""
+        copia = self.atajos.copia()
+        copia.perfiles = {n: c for n, c in copia.perfiles.items() if guardado(n)}
+        return copia
+
     def conf_persistible(self) -> Configuracion:
         """Lo que se escribe en el archivo: perfiles guardados, activo y monitores fijos.
 
@@ -654,4 +695,5 @@ class Estado:
             perfil_activo=activo if guardado(activo) else NORMAL,
             monitores={k: (v if guardado(v) else None) for k, v in self._fijos.items()},
             programas=[a for a in self.programas if guardado(a.perfil)],
+            atajos=self._atajos_guardables(guardado),
         )
