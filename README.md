@@ -2,15 +2,30 @@
 
 App **gratuita** y sencilla para Windows que ajusta la imagen de la pantalla: brillo, contraste, gamma (global y por canal R/G/B) y temperatura de color, desde un icono en la bandeja del sistema. Pensada para ver mejor las zonas oscuras en juegos y otros usos.
 
-> **Estado:** en desarrollo, todavía sin versión utilizable. Consulta `PLAN.md` para el diseño y las fases.
+> **Estado:** en desarrollo (fase 2 de 6 hecha: orden de terminal, panel, bandeja y perfiles). Todavía sin probar a fondo ni empaquetar. Consulta `PLAN.md` para el diseño y las fases.
 
 ## Qué pretende ofrecer
 - Control fino de los valores (modo preciso, rueda del ratón, campo numérico).
 - Perfiles creados por cada usuario y atajos de teclado globales.
 - Restauración de la pantalla original al salir y un atajo de emergencia.
 
-## Uso de la orden (fase 1, sin interfaz todavía)
+## La app (panel y bandeja)
 Requiere Windows y Python 3.10 o superior. Desde la carpeta del proyecto, con el entorno virtual activo (`pip install -r requirements.txt`):
+
+```
+python -m vislumbra          # abre la app: icono en la bandeja y panel
+```
+
+- **Panel:** brillo, contraste, gamma y temperatura, con canales R, G y B vinculados o separados. Cada deslizador admite arrastrar (con **Mayús**, 10 veces más lento), rueda del ratón y flechas, doble clic para volver al neutro y escribir el número (coma o punto). El **modo preciso** hace que el deslizador cubra solo una ventana pequeña alrededor del valor.
+- **Perfiles:** «Normal» viene incluido y no se modifica. Al mover un deslizador con Normal, se crea «Perfil N» (sin guardar). Puedes guardar, guardar como, renombrar y borrar. Se guardan en `%APPDATA%\Vislumbra\config.json`, fuera del repositorio.
+- **Monitores:** cada monitor **sigue al perfil activo** o tiene un **perfil fijo** (por ejemplo, uno de código con menos brillo que no cambia al cambiar de perfil).
+- **A/B** muestra la pantalla normal un momento (también con la barra espaciadora); **Restablecer** pone el perfil en neutro durante 10 s con «Deshacer»; **Activo** la apaga del todo.
+- **Seguridad:** el control se detiene en el último valor que Windows y el validador aceptan, un ajuste fuerte (más del 40 % de desviación) se deshace solo a los 10 s si no pulsas «Mantener», y al salir se restaura la pantalla original. Si algo cambia la rampa (un juego), la app la vuelve a aplicar; si es un conflicto continuo, avisa y deja de insistir.
+- **Bandeja:** clic izquierdo muestra u oculta el panel. El menú permite activar o desactivar, cambiar de perfil, comparar y salir (restaura la pantalla).
+- **Desde otra terminal:** `python -m vislumbra --perfil NOMBRE` (o `--perfil siguiente`) cambia el perfil activo de la app abierta; `python -m vislumbra --reset` la desactiva y devuelve la pantalla a la normal (es la salida de emergencia, junto con «Activo» y «Salir»). Con la app abierta, los ajustes sueltos (`--gamma`, etc.) se rechazan.
+
+## Uso de la orden de terminal
+Sin la app abierta, también se puede aplicar un ajuste desde la terminal:
 
 ```
 python -m vislumbra --list                          # monitores activos
@@ -20,6 +35,7 @@ python -m vislumbra --gamma 1.2 --duration 5        # aplica 5 segundos y restau
 python -m vislumbra --gamma 1.7 --contrast 5 --monitor todos
 python -m vislumbra --channel r --gamma 1.5         # solo el canal rojo
 python -m vislumbra --temp 4000                     # temperatura de color en kelvin
+python -m vislumbra --perfil NOMBRE                 # aplica un perfil guardado (sin la app abierta)
 python -m vislumbra --reset                         # rampa neutra en todos los monitores
 ```
 
@@ -31,7 +47,10 @@ Con `--persist` la rampa sigue aplicada cuando el proceso ya ha terminado. Compr
 Los rangos se calibraron en un solo equipo y pueden ajustarse. La orden rechaza ajustes que dejarían la pantalla casi ilegible, y Windows rechaza los que se desvían demasiado de la rampa neutra (por ejemplo, temperaturas por debajo de unos 3300 K).
 
 ## Cómo funciona
-Usa la rampa de gamma de Windows (GDI), sin tocar el registro ni los drivers. La configuración de cada usuario se guarda en `%APPDATA%\vislumbra`, fuera del repositorio.
+Usa la rampa de gamma de Windows (GDI), sin tocar el registro ni los drivers. La configuración de cada usuario se guarda en `%APPDATA%\Vislumbra`, fuera del repositorio. El archivo guarda, para recordar qué perfil lleva cada monitor, el identificador de Windows de cada monitor (incluye un código del modelo); no se envía a ningún sitio.
+
+## Logo
+El logo (`assets/logo.png`) se generó con ChatGPT, e incluye la credencial de contenido (C2PA) que incrusta el generador. Los iconos de la bandeja salen de él con `herramientas/generar_iconos.py`. **Pendiente antes de hacer público el repositorio:** revisar los términos vigentes de OpenAI sobre la propiedad de lo generado y anotar aquí el resultado.
 
 ## Licencia
-[GNU GPL v3](LICENSE). Dependencias: `pystray` (LGPLv3), `keyboard` (MIT) y `Pillow` (MIT-CMU), todas compatibles con GPL v3.
+[GNU GPL v3](LICENSE). Dependencias: `pystray` (LGPLv3), `keyboard` (MIT) y `Pillow` (MIT-CMU), todas compatibles con GPL v3 (`keyboard` se usará en la fase 3). Solo para desarrollo: `pytest` (MIT).

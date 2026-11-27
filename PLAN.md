@@ -99,7 +99,7 @@ Cada fase termina con una entrada en `REGISTRO.md` y, si procede, un commit.
 
 - **Fase 0 – Preparación:** entorno virtual, `requirements.txt`, `.gitignore`, `git init`, repositorio **privado** en GitHub (con OK del usuario antes del primer `push`), `README.md` básico.
 - **Fase 1 – Núcleo:** `color.py` y `display.py`: aplicar, leer y restaurar la rampa, con una orden de terminal para probarla (`python -m vislumbra --gamma 1.4`, `--reset`). Sin interfaz todavía.
-- **Fase 2 – Panel, bandeja y perfiles** (plan aprobado: `docs/plan-fase-2.md`):
+- **Fase 2 – Panel, bandeja y perfiles** (**implementada**, pendiente de test; plan: `docs/plan-fase-2.md`):
   - Panel con sliders por canal y opción «vincular canales»: brillo, contraste, gamma y temperatura. Incluye control fino y modo preciso, gráfico de la curva, restablecer y A/B.
   - Perfiles creados por el usuario: crear, guardar, guardar como, renombrar y borrar. Solo «Normal» viene incluido.
   - **Cada monitor sigue al perfil activo o tiene un perfil fijo**; por ejemplo, un monitor de código con su propio ajuste que no cambia al cambiar el perfil activo.

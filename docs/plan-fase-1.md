@@ -82,7 +82,7 @@ Umbrales propuestos, a afinar en test. `display.aplicar_rampa` y la orden la lla
 @dataclass(frozen=True)
 class Monitor:
     numero: int          # 1, 2, 3… solo activos, como lo muestra --list
-    dispositivo: str     # r"\\.\DISPLAY6"
+    dispositivo: str     # r"\\.\DISPLAY1"
     adaptador: str
     nombre: str | None   # segundo nivel de EnumDisplayDevices; puede faltar
     principal: bool
