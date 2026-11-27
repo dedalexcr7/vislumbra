@@ -355,6 +355,7 @@ class Panel:
         self._mensaje: tuple[str, str, float] | None = None  # (texto, color, hasta)
         self._colocada = False
         self._arrastre_ini: tuple[int, int, int, int] | None = None
+        self._t_menu = -1e9  # cuándo se cerró la lista de perfiles por última vez
         fijar_escala(raiz)
         self._construir()
         self.refrescar()
@@ -557,7 +558,9 @@ class Panel:
         return dialogos.preguntar_guardar(self.raiz)
 
     def _menu_perfiles(self, e) -> None:
-        """Lista de perfiles al pulsar el nombre (sustituye al desplegable)."""
+        """Lista de perfiles al pulsar el nombre (sustituye al desplegable). Pulsarlo con la lista abierta solo la cierra."""
+        if time.monotonic() - self._t_menu < 0.6:
+            return
         menu = tk.Menu(self.raiz, tearoff=0, bg=BOTON, fg=TEXTO, activebackground=ACENTO, activeforeground=FONDO_VENTANA, bd=0, font=fuente(13))
         for nombre in self.estado.nombres():
             menu.add_command(label=nombre, command=lambda n=nombre: self._elegir_activo(n))
@@ -565,6 +568,7 @@ class Panel:
             menu.tk_popup(e.x_root, e.y_root)
         finally:
             menu.grab_release()
+            self._t_menu = time.monotonic()
 
     # -- mensajes -----------------------------------------------------------------------------------------------------------------
     def mensaje(self, texto: str, color_: str = AVISO, segundos: float = 6.0) -> None:

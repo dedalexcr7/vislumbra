@@ -121,3 +121,24 @@ def test_campo_redondo_comparte_la_variable_con_su_entry(ventana):
     var.set("otro.exe")
     assert c.entrada.get() == "otro.exe"
     c.destroy()
+
+
+def test_pulsar_el_selector_con_la_lista_abierta_solo_la_cierra(ventana, monkeypatch):
+    aperturas = []
+
+    class MenuFalso:
+        def __init__(self, *a, **k): ...
+        def add_command(self, **k): ...
+        def tk_popup(self, x, y): aperturas.append((x, y))  # en Windows no vuelve hasta que se cierra la lista
+        def grab_release(self): ...
+
+    monkeypatch.setattr(widgets.tk, "Menu", MenuFalso)
+    s = widgets.Selector(ventana, tk.StringVar(master=ventana, value="a"), ["a", "b"])
+    s._abrir(None)
+    assert len(aperturas) == 1
+    s._abrir(None)  # el clic que cerró la lista llega después al lienzo: no debe reabrirla
+    assert len(aperturas) == 1
+    s._t_cierre -= widgets.Selector.PAUSA_REAPERTURA + 1  # pasado un rato, un clic nuevo sí la abre
+    s._abrir(None)
+    assert len(aperturas) == 2
+    s.destroy()

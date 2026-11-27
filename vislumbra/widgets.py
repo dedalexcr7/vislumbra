@@ -9,6 +9,7 @@ ajusta al DPI de la ventana. Aquí no hay lógica de la app: solo dibujo y gesto
 from __future__ import annotations
 
 import math
+import time
 import tkinter as tk
 from collections.abc import Callable, Sequence
 from tkinter import font as tkfont
@@ -410,7 +411,9 @@ class CampoRedondo(tk.Canvas):
 
 class Selector(tk.Canvas):
     """Desplegable oscuro con la API básica de un ``ttk.Combobox`` de solo lectura: ``textvariable``, ``values``, ``state``
-    y el evento virtual ``<<ComboboxSelected>>``. Al pulsarlo abre la lista de valores."""
+    y el evento virtual ``<<ComboboxSelected>>``. Al pulsarlo abre la lista de valores; pulsarlo con la lista abierta la cierra."""
+
+    PAUSA_REAPERTURA = 0.6  # segundos
 
     def __init__(
         self, master, variable: tk.StringVar, valores=(), estado: str = "readonly", alto: int = 32, tam: int = 13,
@@ -420,6 +423,7 @@ class Selector(tk.Canvas):
         self._var, self._valores, self._estado, self._alto, self._encima = variable, list(valores), estado, alto, False
         self._fuente = tkfont.Font(root=master, font=fuente(tam))
         self._tam, self._comando = tam, comando
+        self._t_cierre = -1e9  # cuándo se cerró la lista por última vez
         variable.trace_add("write", lambda *a: self._dibujar())
         self.bind("<Configure>", lambda e: self._dibujar())
         self.bind("<Enter>", lambda e: self._hover(True))
@@ -453,6 +457,9 @@ class Selector(tk.Canvas):
     def _abrir(self, _e) -> None:
         if self._estado == "disabled" or not self._valores:
             return
+        # Si la lista acaba de cerrarse, este clic es el que la cerró (Windows lo reenvía al lienzo): no se reabre.
+        if time.monotonic() - self._t_cierre < self.PAUSA_REAPERTURA:
+            return
         menu = tk.Menu(self, tearoff=0, bg=BOTON, fg=TEXTO, activebackground=ACENTO, activeforeground=TEXTO_OSCURO, bd=0, font=fuente(self._tam))
         for v in self._valores:
             menu.add_command(label=v, command=lambda v=v: self.elegir(v))
@@ -460,6 +467,7 @@ class Selector(tk.Canvas):
             menu.tk_popup(self.winfo_rootx(), self.winfo_rooty() + self.winfo_height())
         finally:
             menu.grab_release()
+            self._t_cierre = time.monotonic()
 
     def elegir(self, valor: str) -> None:
         self._var.set(valor)
